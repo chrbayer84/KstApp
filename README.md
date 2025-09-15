@@ -1,6 +1,8 @@
 # KstApp
 
-ON4KST Chat app with Push Notification support
+ON4KST Chat app with Push Notification support. Based on the great work done
+by the [QLog
+team](https://github.com/foldynl/QLog/blob/master/service/kstchat/KSTChat.cpp).
 
 
 ## Features
