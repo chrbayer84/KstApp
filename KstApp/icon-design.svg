@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Black background -->
+  <rect width="1024" height="1024" fill="#000000" rx="180"/>
+  
+  <!-- First speech bubble (left, incoming) -->
+  <rect x="200" y="300" width="280" height="200" fill="#00C851" rx="20"/>
+  <polygon points="200,400 150,450 200,500" fill="#00C851"/>
+  
+  <!-- Second speech bubble (right, outgoing) -->
+  <rect x="544" y="200" width="280" height="200" fill="#00C851" rx="20"/>
+  <polygon points="824,300 874,250 824,200" fill="#00C851"/>
+  
+  <!-- Third speech bubble (left, smaller) -->
+  <rect x="150" y="600" width="200" height="150" fill="#00C851" rx="15"/>
+  <polygon points="150,675 100,725 150,775" fill="#00C851"/>
+  
+  <!-- KST Text overlay -->
+  <text x="512" y="580" font-family="Arial, sans-serif" font-size="180" font-weight="bold" fill="#FFFFFF" text-anchor="middle">KST</text>
+</svg>

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>KST App Icon Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f0f0f0;
+        }
+        .icon-container {
+            display: inline-block;
+            margin: 10px;
+            text-align: center;
+        }
+        .icon {
+            border-radius: 20%;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        .size-label {
+            margin-top: 5px;
+            font-size: 12px;
+            color: #666;
+        }
+        canvas {
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+<body>
+    <h1>KST App Icon Generator</h1>
+    <p>Right-click on each icon and "Save image as..." to save them to the Assets.xcassets/AppIcon.appiconset/ folder.</p>
+    
+    <div id="icons"></div>
+
+    <script>
+        function createIcon(size, filename) {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            
+            // Black background with rounded corners
+            ctx.fillStyle = '#000000';
+            const cornerRadius = size * 0.18;
+            ctx.beginPath();
+            ctx.roundRect(0, 0, size, size, cornerRadius);
+            ctx.fill();
+            
+            // Green color for speech bubbles
+            const green = '#00C851';
+            
+            // Scale factor
+            const scale = size / 1024;
+            
+            // First speech bubble (left, incoming)
+            const bubble1 = {
+                x: 200 * scale,
+                y: 300 * scale,
+                w: 280 * scale,
+                h: 200 * scale,
+                r: 20 * scale
+            };
+            
+            ctx.fillStyle = green;
+            ctx.beginPath();
+            ctx.roundRect(bubble1.x, bubble1.y, bubble1.w, bubble1.h, bubble1.r);
+            ctx.fill();
+            
+            // Speech bubble tail
+            ctx.beginPath();
+            ctx.moveTo(bubble1.x, bubble1.y + 100 * scale);
+            ctx.lineTo(bubble1.x - 50 * scale, bubble1.y + 150 * scale);
+            ctx.lineTo(bubble1.x, bubble1.y + 200 * scale);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Second speech bubble (right, outgoing)
+            const bubble2 = {
+                x: 544 * scale,
+                y: 200 * scale,
+                w: 280 * scale,
+                h: 200 * scale,
+                r: 20 * scale
+            };
+            
+            ctx.beginPath();
+            ctx.roundRect(bubble2.x, bubble2.y, bubble2.w, bubble2.h, bubble2.r);
+            ctx.fill();
+            
+            // Speech bubble tail (right side)
+            ctx.beginPath();
+            ctx.moveTo(bubble2.x + bubble2.w, bubble2.y + 100 * scale);
+            ctx.lineTo(bubble2.x + bubble2.w + 50 * scale, bubble2.y + 50 * scale);
+            ctx.lineTo(bubble2.x + bubble2.w, bubble2.y);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Third speech bubble (left, smaller)
+            const bubble3 = {
+                x: 150 * scale,
+                y: 600 * scale,
+                w: 200 * scale,
+                h: 150 * scale,
+                r: 15 * scale
+            };
+            
+            ctx.beginPath();
+            ctx.roundRect(bubble3.x, bubble3.y, bubble3.w, bubble3.h, bubble3.r);
+            ctx.fill();
+            
+            // Speech bubble tail
+            ctx.beginPath();
+            ctx.moveTo(bubble3.x, bubble3.y + 75 * scale);
+            ctx.lineTo(bubble3.x - 50 * scale, bubble3.y + 125 * scale);
+            ctx.lineTo(bubble3.x, bubble3.y + 175 * scale);
+            ctx.closePath();
+            ctx.fill();
+            
+            // KST Text overlay
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = `bold ${180 * scale}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('KST', size / 2, size / 2 + 50 * scale);
+            
+            // Create container
+            const container = document.createElement('div');
+            container.className = 'icon-container';
+            
+            canvas.className = 'icon';
+            container.appendChild(canvas);
+            
+            const label = document.createElement('div');
+            label.className = 'size-label';
+            label.textContent = `${filename} (${size}x${size})`;
+            container.appendChild(label);
+            
+            return container;
+        }
+        
+        // Generate all required icon sizes
+        const sizes = [
+            { size: 40, filename: 'icon-20@2x.png' },
+            { size: 60, filename: 'icon-20@3x.png' },
+            { size: 58, filename: 'icon-29@2x.png' },
+            { size: 87, filename: 'icon-29@3x.png' },
+            { size: 80, filename: 'icon-40@2x.png' },
+            { size: 120, filename: 'icon-40@3x.png' },
+            { size: 120, filename: 'icon-60@2x.png' },
+            { size: 180, filename: 'icon-60@3x.png' },
+            { size: 1024, filename: 'icon-1024.png' }
+        ];
+        
+        const iconsContainer = document.getElementById('icons');
+        sizes.forEach(({ size, filename }) => {
+            const iconElement = createIcon(size, filename);
+            iconsContainer.appendChild(iconElement);
+        });
+    </script>
+</body>
+</html>
