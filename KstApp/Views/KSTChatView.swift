@@ -76,7 +76,7 @@ struct KSTChatView: View {
                     
                     // Users list
                     usersListView
-                        .frame(width: 200)
+                        .frame(width: 180)
                         .background(Color(.systemGray6))
                 }
                 
@@ -216,7 +216,7 @@ struct KSTChatView: View {
                                         .foregroundColor(.blue)
                                 }
                             }
-                            .frame(width: 80, alignment: .leading)
+                            .frame(width: 70, alignment: .leading)
                         }
                         .buttonStyle(PlainButtonStyle())
                         
@@ -240,7 +240,7 @@ struct KSTChatView: View {
                                         .foregroundColor(.blue)
                                 }
                             }
-                            .frame(width: 50, alignment: .leading)
+                            .frame(width: 45, alignment: .leading)
                         }
                         .buttonStyle(PlainButtonStyle())
                         
@@ -264,7 +264,7 @@ struct KSTChatView: View {
                                         .foregroundColor(.blue)
                                 }
                             }
-                            .frame(width: 40, alignment: .leading)
+                            .frame(width: 35, alignment: .leading)
                         }
                         .buttonStyle(PlainButtonStyle())
                     }
@@ -289,20 +289,23 @@ struct KSTChatView: View {
                             Text(user.grid.grid)
                                 .font(.system(.caption2, design: .monospaced))
                                 .foregroundColor(.secondary)
-                                .frame(width: 50, alignment: .leading)
+                                .frame(width: 45, alignment: .leading)
                             
                             Text(calculateAzimuth(for: user).map { "\(Int($0))°" } ?? "--")
                                 .font(.system(.caption2, design: .monospaced))
                                 .foregroundColor(.secondary)
-                                .frame(width: 40, alignment: .leading)
+                                .frame(width: 35, alignment: .leading)
                         }
                         .padding(.vertical, 0.5)
                         .background(selectedCallsign == user.callsign ? Color.blue.opacity(0.1) : Color.clear)
                     }
                     .listStyle(PlainListStyle())
+                    .padding(.horizontal, 0)
+                    .padding(.vertical, 0)
                 }
             }
         }
+        .padding(0)
     }
     
     // MARK: - Message Input View

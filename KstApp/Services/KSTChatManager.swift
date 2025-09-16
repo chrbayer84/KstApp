@@ -72,12 +72,10 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     private var storedGridSquare: String = ""
     private var lastMessageCount = 0
     private var isAppInBackground = false
+    private var isLoadingHistoricalMessages = false
     private var backgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
     private var backgroundConnectionTimer: Timer?
     private var userListTimeoutTimer: Timer?
-    private var backgroundTaskRenewalTimer: Timer?
-    private var isBackgroundTaskActive = false
-    private var keepAliveTimer: Timer?
     
     // MARK: - Commands
     private enum Command {
@@ -170,8 +168,6 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     func disconnectChat(manual: Bool) {
         updateUsersTimer?.invalidate()
         updateUsersTimer = nil
-        keepAliveTimer?.invalidate()
-        keepAliveTimer = nil
         
         tcpConnection?.cancel()
         tcpConnection = nil
@@ -199,6 +195,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         usersList.removeAll()
         errorMessage = nil
         lastMessageCount = 0
+        isLoadingHistoricalMessages = false
     }
     
     func sendMessage(_ message: String) {
@@ -273,27 +270,8 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     }
     
     private func setupKeepAlive() {
-        // Send periodic keep-alive messages to prevent connection timeout
-        // Use shorter interval in background to maintain connection
-        let interval: TimeInterval = isAppInBackground ? 30.0 : 60.0
-        keepAliveTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            self?.sendKeepAlive()
-        }
-    }
-    
-    private func sendKeepAlive() {
-        guard isConnected else { return }
-        
-        // Send a simple ping to keep the connection alive
-        sendCommand(.user, "")
-        debugPrint("Sent keep-alive ping")
-    }
-    
-    private func updateKeepAliveTimer() {
-        keepAliveTimer?.invalidate()
-        if isConnected {
-            setupKeepAlive()
-        }
+        // Note: iOS doesn't allow direct socket manipulation like in the C++ version
+        // The system will handle keep-alive automatically
     }
     
     private func startReceiving() {
@@ -443,25 +421,31 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 sendShowUsersCommand()
                 sendShowMessagesCommand()
                 
-                // Add login completion message to chat
-                let message = KSTChatMsg(
-                    time: DateFormatter.timeFormatter.string(from: Date()),
-                    sender: "",
-                    message: commandLineBuffer.joined(separator: "\n")
-                )
-                DispatchQueue.main.async {
-                    self.chatMessages.append(message)
+                // Add login completion message to chat only if there's content
+                let messageContent = commandLineBuffer.joined(separator: "\n")
+                if !messageContent.isEmpty {
+                    let message = KSTChatMsg(
+                        time: DateFormatter.timeFormatter.string(from: Date()),
+                        sender: "",
+                        message: messageContent
+                    )
+                    DispatchQueue.main.async {
+                        self.chatMessages.append(message)
+                    }
                 }
             case .setGrid:
                 debugPrint("Set grid command completed")
-                // Add set grid completion message to chat
-                let message = KSTChatMsg(
-                    time: DateFormatter.timeFormatter.string(from: Date()),
-                    sender: "",
-                    message: commandLineBuffer.joined(separator: "\n")
-                )
-                DispatchQueue.main.async {
-                    self.chatMessages.append(message)
+                // Add set grid completion message to chat only if there's content
+                let messageContent = commandLineBuffer.joined(separator: "\n")
+                if !messageContent.isEmpty {
+                    let message = KSTChatMsg(
+                        time: DateFormatter.timeFormatter.string(from: Date()),
+                        sender: "",
+                        message: messageContent
+                    )
+                    DispatchQueue.main.async {
+                        self.chatMessages.append(message)
+                    }
                 }
             case .showUsers:
                 debugPrint("Show users command completed, processing \(commandLineBuffer.count) lines")
@@ -475,14 +459,17 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 // Don't add message history to chat messages (already processed)
             case .user:
                 debugPrint("User command completed")
-                // Add user command message to chat
-                let message = KSTChatMsg(
-                    time: DateFormatter.timeFormatter.string(from: Date()),
-                    sender: "",
-                    message: commandLineBuffer.joined(separator: "\n")
-                )
-                DispatchQueue.main.async {
-                    self.chatMessages.append(message)
+                // Add user command message to chat only if there's content
+                let messageContent = commandLineBuffer.joined(separator: "\n")
+                if !messageContent.isEmpty {
+                    let message = KSTChatMsg(
+                        time: DateFormatter.timeFormatter.string(from: Date()),
+                        sender: "",
+                        message: messageContent
+                    )
+                    DispatchQueue.main.async {
+                        self.chatMessages.append(message)
+                    }
                 }
             case .none:
                 break
@@ -703,6 +690,9 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     private func finalizeShowMessagesCommand(_ buffer: [String]) {
         debugPrint("Processing message history buffer with \(buffer.count) records:")
         
+        // Set flag to prevent notifications during historical message loading
+        isLoadingHistoricalMessages = true
+        
         // Debug: Print all received records
         for (index, record) in buffer.enumerated() {
             debugPrint("Record \(index): '\(record)'")
@@ -745,6 +735,8 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             self.chatMessages = newMessages + self.chatMessages
             // Update lastMessageCount to prevent notifications for historical messages
             self.lastMessageCount = self.chatMessages.count
+            // Clear the flag now that historical messages are loaded
+            self.isLoadingHistoricalMessages = false
         }
     }
     
@@ -854,8 +846,6 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         ) { _ in
             self.isAppInBackground = true
             self.startBackgroundTask()
-            self.updateKeepAliveTimer()
-            self.startBackgroundConnectionTimer()
         }
         
         NotificationCenter.default.addObserver(
@@ -865,8 +855,6 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         ) { _ in
             self.isAppInBackground = false
             self.endBackgroundTask()
-            self.updateKeepAliveTimer()
-            self.startBackgroundConnectionTimer()
             // Reconnect if we were connected before going to background
             if self.isConnected {
                 self.reconnectAfterBackground()
@@ -875,23 +863,15 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     }
     
     private func startBackgroundTask() {
-        guard !isBackgroundTaskActive else { return }
-        
         endBackgroundTask() // End any existing background task
         
-        backgroundTaskIdentifier = UIApplication.shared.beginBackgroundTask(withName: "KSTChatConnection") { [weak self] in
+        backgroundTaskIdentifier = UIApplication.shared.beginBackgroundTask(withName: "KSTChatConnection") {
             // This block is called when the background task is about to expire
-            self?.debugPrint("Background task expiring, attempting to renew...")
-            self?.renewBackgroundTask()
+            self.endBackgroundTask()
         }
-        
-        isBackgroundTaskActive = true
         
         // Start a timer to periodically check connection in background
         startBackgroundConnectionTimer()
-        
-        // Start a timer to renew the background task before it expires
-        startBackgroundTaskRenewalTimer()
         
         debugPrint("Started background task: \(backgroundTaskIdentifier.rawValue)")
     }
@@ -899,9 +879,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     private func startBackgroundConnectionTimer() {
         stopBackgroundConnectionTimer()
         
-        // More frequent connection monitoring in background
-        let interval: TimeInterval = isAppInBackground ? 15.0 : 30.0
-        backgroundConnectionTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+        backgroundConnectionTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { _ in
             if self.isAppInBackground && self.isConnected {
                 self.debugPrint("Background: Checking connection status...")
                 self.sendPingToVerifyConnection()
@@ -914,44 +892,8 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         backgroundConnectionTimer = nil
     }
     
-    private func startBackgroundTaskRenewalTimer() {
-        stopBackgroundTaskRenewalTimer()
-        
-        // Renew background task every 25 minutes (iOS gives ~30 minutes)
-        backgroundTaskRenewalTimer = Timer.scheduledTimer(withTimeInterval: 25 * 60, repeats: true) { [weak self] _ in
-            self?.renewBackgroundTask()
-        }
-    }
-    
-    private func stopBackgroundTaskRenewalTimer() {
-        backgroundTaskRenewalTimer?.invalidate()
-        backgroundTaskRenewalTimer = nil
-    }
-    
-    private func renewBackgroundTask() {
-        guard isAppInBackground && isConnected else {
-            debugPrint("Not renewing background task - app not in background or not connected")
-            return
-        }
-        
-        // End current background task
-        if backgroundTaskIdentifier != .invalid {
-            UIApplication.shared.endBackgroundTask(backgroundTaskIdentifier)
-        }
-        
-        // Start new background task
-        backgroundTaskIdentifier = UIApplication.shared.beginBackgroundTask(withName: "KSTChatConnection") { [weak self] in
-            self?.debugPrint("Renewed background task expiring, attempting to renew again...")
-            self?.renewBackgroundTask()
-        }
-        
-        debugPrint("Renewed background task: \(backgroundTaskIdentifier.rawValue)")
-    }
-    
     private func endBackgroundTask() {
         stopBackgroundConnectionTimer()
-        stopBackgroundTaskRenewalTimer()
-        isBackgroundTaskActive = false
         
         if backgroundTaskIdentifier != .invalid {
             debugPrint("Ending background task: \(backgroundTaskIdentifier.rawValue)")
@@ -1001,6 +943,12 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     
     private func sendNotificationForNewMessage(_ message: KSTChatMsg) {
         guard notificationsEnabled && isAppInBackground else { return }
+        
+        // Don't send notifications when loading historical messages
+        if isLoadingHistoricalMessages {
+            debugPrint("Skipping notification - loading historical messages")
+            return
+        }
         
         // Only send notifications for messages that are truly new (not historical)
         // Check if this message was added after the last known message count
