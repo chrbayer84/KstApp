@@ -1,0 +1,43 @@
+{
+  "name": "KstApp AltStore Source",
+  "subtitle": "A source for all of my apps",
+  "description": "Welcome to my source! Here you'll find all of my apps.",
+  "iconURL": "https://i.imgur.com/XSFBK50.png",
+  "website": "https://github.com/chrbayer84/KstApp",
+  "patreonURL": "",
+  "tintColor": "#6156e2",
+  "featuredApps": [
+    "com.github.KstApp"
+  ],
+  "apps": [
+    {
+      "name": "KstApp",
+      "bundleIdentifier": "com.github.KstApp",
+      "marketplaceID": "",
+      "developerName": "Christian Bayer, WA4YA",
+      "subtitle": "ON4KST VHF Chat client",
+      "localizedDescription": "ON4KST VHF Chat client with Push-Notification support. Open Source: https://github.com/chrbayer84/KstApp",
+      "iconURL": "https://i.imgur.com/RArjezp.png",
+      "tintColor": "#6156e2",
+      "category": "social",
+      "screenshots": [],
+      "versions": [
+        {
+          "downloadURL": "https://github.com/chrbayer84/KstApp/releases/download/v0.1/KstApp.ipa",
+          "size": 200000,
+          "version": "0.1",
+          "buildVersion": "1",
+          "date": "2025-10-09T19:02:00-04:00",
+          "localizedDescription": null,
+          "minOSVersion": null
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {}
+      },
+      "patreon": {}
+    }
+  ],
+  "news": []
+}
