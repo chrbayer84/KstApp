@@ -1,4 +1,4 @@
-{
+`	{
   "name": "KstApp AltStore Source",
   "subtitle": "A source for all of my apps",
   "description": "Welcome to my source! Here you'll find all of my apps.",
@@ -12,7 +12,6 @@
     {
       "name": "KstApp",
       "bundleIdentifier": "com.github.KstApp",
-      "marketplaceID": "",
       "developerName": "Christian Bayer, WA4YA",
       "subtitle": "ON4KST VHF Chat client",
       "localizedDescription": "ON4KST VHF Chat client with Push-Notification support. Open Source: https://github.com/chrbayer84/KstApp",
