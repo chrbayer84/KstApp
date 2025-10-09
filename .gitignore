@@ -107,6 +107,9 @@ iOSInjectionProject/
 # IDE files
 .vscode/
 .idea/
+.cursor/
+*.adi*
+*.xcarchive
 
 # App-specific generated files
 # Add any project-specific generated files here

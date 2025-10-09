@@ -21,10 +21,12 @@ struct KSTUsersInfo: Identifiable {
     let id = UUID()
     let callsign: String
     let grid: Gridsquare
+    let name: String
     
-    init(callsign: String = "", grid: Gridsquare = Gridsquare()) {
+    init(callsign: String = "", grid: Gridsquare = Gridsquare(), name: String = "") {
         self.callsign = callsign
         self.grid = grid
+        self.name = name
     }
 }
 
@@ -55,6 +57,11 @@ struct Gridsquare {
     func bearingTo(_ other: Gridsquare) -> Double? {
         guard isValid && other.isValid else { return nil }
         return Gridsquare.bearingBetween(lat1: latitude, lon1: longitude, lat2: other.latitude, lon2: other.longitude)
+    }
+    
+    func distanceTo(_ other: Gridsquare) -> Double? {
+        guard isValid && other.isValid else { return nil }
+        return Gridsquare.distanceBetween(lat1: latitude, lon1: longitude, lat2: other.latitude, lon2: other.longitude)
     }
     
     // MARK: - Static Helper Methods
@@ -117,6 +124,22 @@ struct Gridsquare {
             bearing += 360.0
         }
         return bearing
+    }
+    
+    private static func distanceBetween(lat1: Double, lon1: Double, lat2: Double, lon2: Double) -> Double {
+        let earthRadius = 6371.0 // Earth's radius in kilometers
+        
+        let lat1Rad = lat1 * .pi / 180.0
+        let lat2Rad = lat2 * .pi / 180.0
+        let dLat = (lat2 - lat1) * .pi / 180.0
+        let dLon = (lon2 - lon1) * .pi / 180.0
+        
+        let a = sin(dLat / 2) * sin(dLat / 2) +
+                cos(lat1Rad) * cos(lat2Rad) *
+                sin(dLon / 2) * sin(dLon / 2)
+        let c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        
+        return earthRadius * c
     }
 }
 

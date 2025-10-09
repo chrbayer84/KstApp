@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 
 struct KSTChatView: View {
     @StateObject private var chatManager = KSTChatManager()
@@ -12,17 +13,21 @@ struct KSTChatView: View {
     @State private var sortBy: SortOption = .callsign
     @State private var sortAscending: Bool = true
     @State private var gridSquare: String = ""
+    @State private var isLandscape: Bool = false
+    
     
     enum SortOption: CaseIterable {
         case callsign
         case grid
         case azimuth
+        case distance
         
         var displayName: String {
             switch self {
             case .callsign: return "Callsign"
             case .grid: return "Grid"
             case .azimuth: return "Azimuth"
+            case .distance: return "Distance"
             }
         }
     }
@@ -49,6 +54,20 @@ struct KSTChatView: View {
                     let a2 = azimuth2!
                     comparison = a1 < a2 ? .orderedAscending : (a1 > a2 ? .orderedDescending : .orderedSame)
                 }
+            case .distance:
+                let distance1 = calculateDistance(for: user1)
+                let distance2 = calculateDistance(for: user2)
+                if distance1 == nil && distance2 == nil {
+                    comparison = .orderedSame
+                } else if distance1 == nil {
+                    comparison = .orderedDescending
+                } else if distance2 == nil {
+                    comparison = .orderedAscending
+                } else {
+                    let d1 = distance1!
+                    let d2 = distance2!
+                    comparison = d1 < d2 ? .orderedAscending : (d1 > d2 ? .orderedDescending : .orderedSame)
+                }
             }
             
             return sortAscending ? comparison == .orderedAscending : comparison == .orderedDescending
@@ -62,88 +81,109 @@ struct KSTChatView: View {
         return myGrid.bearingTo(user.grid)
     }
     
+    private func calculateDistance(for user: KSTUsersInfo) -> Double? {
+        guard !chatManager.myGridSquare.isEmpty else { return nil }
+        let myGrid = Gridsquare(grid: chatManager.myGridSquare)
+        return myGrid.distanceTo(user.grid)
+    }
+    
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Header with room info and connection status
-                headerView
-                
-                // Main chat area
-                HStack(spacing: 0) {
-                    // Chat messages
-                    chatMessagesView
-                        .frame(maxWidth: .infinity)
+        GeometryReader { geometry in
+            NavigationStack {
+                VStack(spacing: 0) {
+                    // Header with room info and connection status
+                    headerView
                     
-                    // Users list
-                    usersListView
-                        .frame(width: 180)
-                        .background(Color(.systemGray6))
+                    // Main chat area
+                    HStack(spacing: 0) {
+                        // Chat messages
+                        chatMessagesView
+                            .frame(maxWidth: .infinity)
+                        
+                        // Users list
+                        usersListView
+                            .frame(width: isLandscape ? 220 : 180)
+                            .background(Color(.systemGray6))
+                    }
+                    
+                    // Message input
+                    messageInputView
                 }
+            }
+            .sheet(isPresented: $showingLogin) {
+                loginView
+            }
+            .alert("Error", isPresented: .constant(chatManager.errorMessage != nil)) {
+                Button("OK") {
+                    chatManager.errorMessage = nil
+                }
+            } message: {
+                Text(chatManager.errorMessage ?? "")
+            }
+            .onAppear {
+                // Load credentials into chat manager first
+                chatManager.loadCredentials()
+                self.checkCredentialsAndShowLogin()
                 
-                // Message input
-                messageInputView
+                // Detect initial orientation
+                detectOrientation(geometry: geometry)
             }
-            .navigationTitle("ON4KST Chat - \(KSTChatManager.chatRooms[chatManager.currentRoomIndex - 1])")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-        .sheet(isPresented: $showingLogin) {
-            loginView
-        }
-        .alert("Error", isPresented: .constant(chatManager.errorMessage != nil)) {
-            Button("OK") {
-                chatManager.errorMessage = nil
+            .onChange(of: geometry.size) {
+                detectOrientation(geometry: geometry)
             }
-        } message: {
-            Text(chatManager.errorMessage ?? "")
-        }
-        .onAppear {
-            // Load credentials into chat manager first
-            chatManager.loadCredentials()
-            self.checkCredentialsAndShowLogin()
         }
     }
     
     // MARK: - Header View
     private var headerView: some View {
-        HStack {
+        VStack(spacing: 8) {
+            // Channel name - always visible
+            Text("ON4KST Chat - \(KSTChatManager.chatRooms[chatManager.currentRoomIndex - 1])")
+                .font(.headline)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+            
+            // Status and controls row
             HStack {
-                Circle()
-                    .fill(chatManager.isConnected ? Color.green : Color.red)
-                    .frame(width: 8, height: 8)
-                
-                Text(chatManager.isConnected ? "Connected" : "Disconnected")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            
-            Spacer()
-            
-            HStack(spacing: 16) {
-                Text("Users: \(chatManager.usersList.count)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                Button(action: {
-                    chatManager.notificationsEnabled.toggle()
-                }) {
-                    Image(systemName: chatManager.notificationsEnabled ? "bell.fill" : "bell.slash.fill")
-                        .foregroundColor(chatManager.notificationsEnabled ? .blue : .gray)
+                HStack {
+                    Circle()
+                        .fill(chatManager.isConnected ? Color.green : Color.red)
+                        .frame(width: 8, height: 8)
+                    
+                    Text(chatManager.isConnected ? "Connected" : "Disconnected")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-                .buttonStyle(.plain)
                 
-                if chatManager.isConnected {
-                    Button("Disconnect") {
-                        chatManager.disconnectChat(manual: true)
-                        showingLogin = true
+                Spacer()
+                
+                HStack(spacing: 16) {
+                    Text("Users: \(chatManager.usersList.count)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    Button(action: {
+                        chatManager.notificationsEnabled.toggle()
+                    }) {
+                        Image(systemName: chatManager.notificationsEnabled ? "bell.fill" : "bell.slash.fill")
+                            .foregroundColor(chatManager.notificationsEnabled ? .blue : .gray)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                } else {
-                    Button("Connect") {
-                        showingLogin = true
+                    .buttonStyle(.plain)
+                    
+                    if chatManager.isConnected {
+                        Button("Disconnect") {
+                            chatManager.disconnectChat(manual: true)
+                            showingLogin = true
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    } else {
+                        Button("Connect") {
+                            showingLogin = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
                 }
             }
         }
@@ -176,7 +216,7 @@ struct KSTChatView: View {
                 }
                 .padding()
             }
-            .onChange(of: chatManager.chatMessages.count) { _ in
+            .onChange(of: chatManager.chatMessages.count) {
                 withAnimation {
                     proxy.scrollTo(chatManager.chatMessages.count - 1, anchor: .bottom)
                 }
@@ -219,6 +259,7 @@ struct KSTChatView: View {
                             .frame(width: 70, alignment: .leading)
                         }
                         .buttonStyle(PlainButtonStyle())
+                        
                         
                         Button(action: {
                             if sortBy == .grid {
@@ -267,6 +308,33 @@ struct KSTChatView: View {
                             .frame(width: 35, alignment: .leading)
                         }
                         .buttonStyle(PlainButtonStyle())
+                        
+                        // Distance column - only show in landscape
+                        if isLandscape {
+                            Button(action: {
+                                if sortBy == .distance {
+                                    sortAscending.toggle()
+                                } else {
+                                    sortBy = .distance
+                                    sortAscending = true
+                                }
+                            }) {
+                                HStack {
+                                    Text("Dist")
+                                        .font(.caption)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(sortBy == .distance ? .blue : .secondary)
+                                    
+                                    if sortBy == .distance {
+                                        Image(systemName: sortAscending ? "arrow.up" : "arrow.down")
+                                            .font(.caption2)
+                                            .foregroundColor(.blue)
+                                    }
+                                }
+                                .frame(width: 45, alignment: .leading)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
                     }
                     .padding(.horizontal, 2)
                     .padding(.vertical, 1)
@@ -274,7 +342,7 @@ struct KSTChatView: View {
                     
                     // User list
                     List(sortedUsers) { user in
-                        HStack {
+                        HStack(spacing: 0) { // Remove spacing between columns
                             Button(action: {
                                 selectedCallsign = user.callsign
                             }) {
@@ -282,9 +350,10 @@ struct KSTChatView: View {
                                     .font(.system(.caption, design: .monospaced))
                                     .fontWeight(.semibold)
                                     .foregroundColor(selectedCallsign == user.callsign ? .blue : .primary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(width: 70, alignment: .leading)
                             }
                             .buttonStyle(PlainButtonStyle())
+                            
                             
                             Text(user.grid.grid)
                                 .font(.system(.caption2, design: .monospaced))
@@ -295,6 +364,14 @@ struct KSTChatView: View {
                                 .font(.system(.caption2, design: .monospaced))
                                 .foregroundColor(.secondary)
                                 .frame(width: 35, alignment: .leading)
+                            
+                            // Distance column - only show in landscape
+                            if isLandscape {
+                                Text(calculateDistance(for: user).map { String(format: "%.0f km", $0) } ?? "--")
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 45, alignment: .leading)
+                            }
                         }
                         .padding(.vertical, 0.5)
                         .background(selectedCallsign == user.callsign ? Color.blue.opacity(0.1) : Color.clear)
@@ -314,7 +391,7 @@ struct KSTChatView: View {
             // Selected callsign label
             if let callsign = selectedCallsign {
                 HStack {
-                    Text("To: \(callsign)")
+                    Text(displayTextForCallsign(callsign))
                         .font(.caption)
                         .foregroundColor(.blue)
                         .padding(.horizontal, 2)
@@ -359,7 +436,7 @@ struct KSTChatView: View {
     
     // MARK: - Login View
     private var loginView: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: 20) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Username")
@@ -382,7 +459,7 @@ struct KSTChatView: View {
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                         .autocapitalization(.allCharacters)
                         .disableAutocorrection(true)
-                        .onChange(of: gridSquare) { newValue in
+                        .onChange(of: gridSquare) { _, newValue in
                             // Convert to uppercase and limit to 6 characters
                             gridSquare = String(newValue.uppercased().prefix(6))
                         }
@@ -451,6 +528,26 @@ struct KSTChatView: View {
     }
     
     // MARK: - Private Methods
+    private func detectOrientation(geometry: GeometryProxy) {
+        isLandscape = geometry.size.width > geometry.size.height
+    }
+    
+    private func displayTextForCallsign(_ callsign: String) -> String {
+        let userInfo = chatManager.usersList.first { $0.callsign == callsign }
+        let gridText = userInfo?.grid.grid ?? ""
+        let nameText = userInfo?.name ?? ""
+        
+        if !nameText.isEmpty && !gridText.isEmpty {
+            return "To: \(callsign) \(nameText) (\(gridText))"
+        } else if !nameText.isEmpty {
+            return "To: \(callsign) \(nameText)"
+        } else if !gridText.isEmpty {
+            return "To: \(callsign) (\(gridText))"
+        } else {
+            return "To: \(callsign)"
+        }
+    }
+    
     private func checkCredentialsAndShowLogin() {
         // Check if we have stored credentials
         let storedUsername = UserDefaults.standard.string(forKey: "KSTUsername") ?? ""

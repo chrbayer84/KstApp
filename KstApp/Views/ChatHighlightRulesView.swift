@@ -7,7 +7,7 @@ struct ChatHighlightRulesView: View {
     @State private var editingRule: ChatHighlightRule?
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             List {
                 // Push Notification Settings Section
                 Section("Push Notifications") {
@@ -147,7 +147,7 @@ struct RuleEditView: View {
     @State private var conditions: [ChatHighlightRule.Condition] = []
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             Form {
                 Section("Rule Details") {
                     TextField("Rule Name", text: $ruleName)

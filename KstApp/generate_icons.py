@@ -5,6 +5,7 @@ Uses only built-in Python libraries
 """
 
 import os
+from PIL import Image, ImageDraw, ImageFont
 
 def create_icon(size):
     """Create an icon of the specified size"""
@@ -102,6 +103,7 @@ def create_icon(size):
 def main():
     """Generate all required icon sizes"""
     sizes = [
+        # iPhone icons
         (40, "icon-20@2x.png"),      # 20pt @2x
         (60, "icon-20@3x.png"),      # 20pt @3x
         (58, "icon-29@2x.png"),      # 29pt @2x
@@ -110,6 +112,27 @@ def main():
         (120, "icon-40@3x.png"),     # 40pt @3x
         (120, "icon-60@2x.png"),     # 60pt @2x
         (180, "icon-60@3x.png"),     # 60pt @3x
+        
+        # iPad icons
+        (20, "icon-20-ipad.png"),    # 20pt @1x
+        (40, "icon-20-ipad@2x.png"), # 20pt @2x
+        (29, "icon-29-ipad.png"),    # 29pt @1x
+        (58, "icon-29-ipad@2x.png"), # 29pt @2x
+        (40, "icon-40-ipad.png"),    # 40pt @1x
+        (80, "icon-40-ipad@2x.png"), # 40pt @2x
+        (76, "icon-76-ipad.png"),    # 76pt @1x
+        (152, "icon-76-ipad@2x.png"), # 76pt @2x
+        (167, "icon-83.5-ipad@2x.png"), # 83.5pt @2x
+        
+        # iPad notification icons
+        (20, "icon-20-ipad-notification.png"),    # 20pt @1x
+        (40, "icon-20-ipad-notification@2x.png"), # 20pt @2x
+        (29, "icon-29-ipad-notification.png"),    # 29pt @1x
+        (58, "icon-29-ipad-notification@2x.png"), # 29pt @2x
+        (40, "icon-40-ipad-notification.png"),    # 40pt @1x
+        (80, "icon-40-ipad-notification@2x.png"), # 40pt @2x
+        
+        # App Store
         (1024, "icon-1024.png")      # App Store
     ]
     

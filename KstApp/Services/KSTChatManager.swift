@@ -4,6 +4,8 @@ import Combine
 import SwiftUI
 import UserNotifications
 import UIKit
+import SystemConfiguration
+import BackgroundTasks
 
 // MARK: - KST Chat Manager
 class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
@@ -73,9 +75,12 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     private var lastMessageCount = 0
     private var isAppInBackground = false
     private var isLoadingHistoricalMessages = false
-    private var backgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
-    private var backgroundConnectionTimer: Timer?
     private var userListTimeoutTimer: Timer?
+    private var networkMonitor: NWPathMonitor?
+    private var networkQueue = DispatchQueue(label: "NetworkMonitor")
+    private var isNetworkAvailable = true
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    private var backgroundTaskTimer: Timer?
     
     // MARK: - Commands
     private enum Command {
@@ -114,10 +119,13 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         loadCredentials()
         setupNotifications()
         setupAppStateObservers()
+        setupNetworkMonitoring()
     }
     
     deinit {
         disconnectChat()
+        stopNetworkMonitoring()
+        endBackgroundTask()
     }
     
     // MARK: - Public Methods
@@ -161,6 +169,9 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             self.isConnected = false
         }
         
+        // End background task when disconnecting
+        endBackgroundTask()
+        
         // Start automatic reconnection if we have stored credentials
         startAutomaticReconnection()
     }
@@ -180,6 +191,9 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         DispatchQueue.main.async {
             self.isConnected = false
         }
+        
+        // End background task when disconnecting
+        endBackgroundTask()
         
         if manual {
             // Stop reconnection if manually disconnected
@@ -254,7 +268,12 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                     self?.debugPrint("Connection failed: \(error)")
                     self?.isConnected = false
                     self?.errorMessage = "Connection failed: \(error.localizedDescription)"
-                    self?.onReconnectionFailure() // Handle reconnection failure
+                    // Only attempt reconnection if network is available
+                    if self?.isNetworkAvailable == true {
+                        self?.onReconnectionFailure()
+                    } else {
+                        self?.debugPrint("Network unavailable, skipping reconnection attempt")
+                    }
                 case .cancelled:
                     self?.debugPrint("Connection cancelled")
                     self?.isConnected = false
@@ -385,7 +404,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             debugPrint("Sending commands after login completion")
             sendSetGridCommand()
             sendShowUsersCommand()
-            sendShowMessagesCommand()
+            // sendShowMessagesCommand() // DISABLED: Historic message loading
             currentCommand = .none
         } else if waitingForLoginPrompt {
             debugPrint("Waiting for Login: prompt, ignoring line: \(line)")
@@ -419,7 +438,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 onReconnectionSuccess() // Handle reconnection success
                 sendSetGridCommand()
                 sendShowUsersCommand()
-                sendShowMessagesCommand()
+                // sendShowMessagesCommand() // DISABLED: Historic message loading
                 
                 // Add login completion message to chat only if there's content
                 let messageContent = commandLineBuffer.joined(separator: "\n")
@@ -545,7 +564,8 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             
             let user = KSTUsersInfo(
                 callsign: callsign,
-                grid: Gridsquare(grid: gridString)
+                grid: Gridsquare(grid: gridString),
+                name: stationComment
             )
             
             DispatchQueue.main.async {
@@ -664,7 +684,8 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 
                 let user = KSTUsersInfo(
                     callsign: callsign,
-                    grid: Gridsquare(grid: gridString)
+                    grid: Gridsquare(grid: gridString),
+                    name: stationComment
                 )
                 
                 newUsersList.append(user)
@@ -730,9 +751,19 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         
         debugPrint("Parsed \(newMessages.count) messages from \(buffer.count) records")
         
+        // Sort messages by timestamp to ensure correct chronological order
+        let sortedMessages = newMessages.sorted { message1, message2 in
+            // Parse timestamps and compare them
+            let time1 = self.parseTimeString(message1.time)
+            let time2 = self.parseTimeString(message2.time)
+            return time1 < time2
+        }
+        
+        debugPrint("Sorted \(sortedMessages.count) messages chronologically")
+        
         // Add messages to the beginning of the chat (historical messages)
         DispatchQueue.main.async {
-            self.chatMessages = newMessages + self.chatMessages
+            self.chatMessages = sortedMessages + self.chatMessages
             // Update lastMessageCount to prevent notifications for historical messages
             self.lastMessageCount = self.chatMessages.count
             // Clear the flag now that historical messages are loaded
@@ -740,11 +771,23 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         }
     }
     
+    // MARK: - Helper Methods
+    private func parseTimeString(_ timeString: String) -> Int {
+        // Parse time string in format "HHMM" and convert to minutes since midnight
+        // This allows for proper chronological sorting
+        guard timeString.count == 4,
+              let hours = Int(String(timeString.prefix(2))),
+              let minutes = Int(String(timeString.suffix(2))) else {
+            return 0
+        }
+        return hours * 60 + minutes
+    }
+    
     // MARK: - Automatic Reconnection
     private func startAutomaticReconnection() {
-        // Only attempt reconnection if we have stored credentials and haven't exceeded max attempts
-        guard !storedUsername.isEmpty && !storedPassword.isEmpty && reconnectAttempts < maxReconnectAttempts else {
-            debugPrint("Reconnection stopped: no credentials or max attempts reached")
+        // Only attempt reconnection if we have stored credentials, haven't exceeded max attempts, and network is available
+        guard !storedUsername.isEmpty && !storedPassword.isEmpty && reconnectAttempts < maxReconnectAttempts && isNetworkAvailable else {
+            debugPrint("Reconnection stopped: no credentials, max attempts reached, or network unavailable")
             return
         }
         
@@ -753,7 +796,12 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         
         // Schedule reconnection with exponential backoff
         reconnectTimer = Timer.scheduledTimer(withTimeInterval: reconnectDelay, repeats: false) { [weak self] _ in
-            self?.attemptReconnection()
+            // Check network availability again before attempting reconnection
+            if self?.isNetworkAvailable == true {
+                self?.attemptReconnection()
+            } else {
+                self?.debugPrint("Network unavailable, skipping scheduled reconnection")
+            }
         }
     }
     
@@ -845,6 +893,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             queue: .main
         ) { _ in
             self.isAppInBackground = true
+            self.debugPrint("App entered background")
             self.startBackgroundTask()
         }
         
@@ -854,92 +903,59 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             queue: .main
         ) { _ in
             self.isAppInBackground = false
+            self.debugPrint("App returned to foreground")
             self.endBackgroundTask()
-            // Reconnect if we were connected before going to background
-            if self.isConnected {
-                self.reconnectAfterBackground()
+            // Reconnection check after foreground return
+            if !self.isConnected && !self.storedUsername.isEmpty {
+                self.debugPrint("Attempting reconnection after foreground return")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.connectChat(roomIndex: self.storedRoomIndex, username: self.storedUsername, password: self.storedPassword, gridSquare: self.storedGridSquare)
+                }
             }
         }
     }
     
-    private func startBackgroundTask() {
-        endBackgroundTask() // End any existing background task
-        
-        backgroundTaskIdentifier = UIApplication.shared.beginBackgroundTask(withName: "KSTChatConnection") {
-            // This block is called when the background task is about to expire
-            self.endBackgroundTask()
-        }
-        
-        // Start a timer to periodically check connection in background
-        startBackgroundConnectionTimer()
-        
-        debugPrint("Started background task: \(backgroundTaskIdentifier.rawValue)")
-    }
-    
-    private func startBackgroundConnectionTimer() {
-        stopBackgroundConnectionTimer()
-        
-        backgroundConnectionTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { _ in
-            if self.isAppInBackground && self.isConnected {
-                self.debugPrint("Background: Checking connection status...")
-                self.sendPingToVerifyConnection()
+    // MARK: - Network Monitoring
+    private func setupNetworkMonitoring() {
+        networkMonitor = NWPathMonitor()
+        networkMonitor?.pathUpdateHandler = { [weak self] path in
+            DispatchQueue.main.async {
+                self?.handleNetworkPathUpdate(path)
             }
         }
+        networkMonitor?.start(queue: networkQueue)
+        debugPrint("Network monitoring started")
     }
     
-    private func stopBackgroundConnectionTimer() {
-        backgroundConnectionTimer?.invalidate()
-        backgroundConnectionTimer = nil
+    private func stopNetworkMonitoring() {
+        networkMonitor?.cancel()
+        networkMonitor = nil
+        debugPrint("Network monitoring stopped")
     }
     
-    private func endBackgroundTask() {
-        stopBackgroundConnectionTimer()
+    private func handleNetworkPathUpdate(_ path: NWPath) {
+        let wasAvailable = isNetworkAvailable
+        isNetworkAvailable = path.status == .satisfied
         
-        if backgroundTaskIdentifier != .invalid {
-            debugPrint("Ending background task: \(backgroundTaskIdentifier.rawValue)")
-            UIApplication.shared.endBackgroundTask(backgroundTaskIdentifier)
-            backgroundTaskIdentifier = .invalid
-        }
-    }
-    
-    private func reconnectAfterBackground() {
-        debugPrint("App returned to foreground, checking connection...")
+        debugPrint("Network status changed: \(path.status), was available: \(wasAvailable), is available: \(isNetworkAvailable)")
         
-        // Give the connection a moment to recover
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            if !self.isConnected {
-                self.debugPrint("Connection lost during background, attempting to reconnect...")
-                self.connectChat(roomIndex: self.storedRoomIndex, username: self.storedUsername, password: self.storedPassword, gridSquare: self.storedGridSquare)
-            } else {
-                self.debugPrint("Connection still active after background")
-                // Send a ping to verify the connection is still working
-                self.sendPingToVerifyConnection()
+        if !wasAvailable && isNetworkAvailable {
+            // Network became available - attempt reconnection
+            debugPrint("Network became available, attempting reconnection")
+            if !isConnected && !storedUsername.isEmpty {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.attemptReconnection()
+                }
             }
+        } else if wasAvailable && !isNetworkAvailable {
+            // Network became unavailable
+            debugPrint("Network became unavailable")
+            // The connection will eventually fail and trigger reconnection logic
         }
     }
     
-    private func sendPingToVerifyConnection() {
-        // Send a simple command to verify the connection is still working
-        sendCommand(.user, "")
-        
-        // Set a timeout to detect if we don't get a response
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
-            if self.isAppInBackground && self.isConnected {
-                self.debugPrint("Background: No response to ping, connection may be lost")
-                self.handleConnectionLoss()
-            }
-        }
-    }
-    
-    private func handleConnectionLoss() {
-        debugPrint("Connection lost during background")
-        isConnected = false
-        
-        // If we're in background, start reconnection attempts
-        if isAppInBackground {
-            startAutomaticReconnection()
-        }
-    }
+    // Background task methods removed to prevent app freezing
+    // The connection will be handled by the standard iOS networking stack
     
     private func sendNotificationForNewMessage(_ message: KSTChatMsg) {
         guard notificationsEnabled && isAppInBackground else { return }
@@ -1030,6 +1046,53 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         UserDefaults.standard.set(roomIndex, forKey: "KSTRoomIndex")
         UserDefaults.standard.set(gridSquare, forKey: "KSTGridSquare")
         // Note: In a production app, password should be stored in Keychain
+    }
+    
+    // MARK: - Background Task Management
+    private func startBackgroundTask() {
+        endBackgroundTask() // End any existing background task
+        
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "KSTChatConnection") { [weak self] in
+            self?.debugPrint("Background task expired")
+            self?.endBackgroundTask()
+        }
+        
+        debugPrint("Started background task: \(backgroundTaskID.rawValue)")
+        
+        // Set up a timer to periodically check connection and extend background time
+        backgroundTaskTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
+            self?.maintainBackgroundConnection()
+        }
+    }
+    
+    private func endBackgroundTask() {
+        if backgroundTaskID != .invalid {
+            debugPrint("Ending background task: \(backgroundTaskID.rawValue)")
+            UIApplication.shared.endBackgroundTask(backgroundTaskID)
+            backgroundTaskID = .invalid
+        }
+        
+        backgroundTaskTimer?.invalidate()
+        backgroundTaskTimer = nil
+    }
+    
+    private func maintainBackgroundConnection() {
+        guard isAppInBackground else {
+            endBackgroundTask()
+            return
+        }
+        
+        // Check if we're still connected
+        if !isConnected && !storedUsername.isEmpty {
+            debugPrint("Connection lost in background, attempting reconnection")
+            attemptReconnection()
+        }
+        
+        // Extend background task if we're still connected
+        if isConnected && backgroundTaskID != .invalid {
+            debugPrint("Extending background task")
+            // The background task will be automatically extended as long as we're actively using it
+        }
     }
 }
 
