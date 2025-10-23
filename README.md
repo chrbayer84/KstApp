@@ -6,7 +6,7 @@ team](https://github.com/foldynl/QLog/blob/master/service/kstchat/KSTChat.cpp).
 
 ## Installation
 Unfortunately KstApp currently is not available from the Apple Appstore. However 
-you can either compile it from source using XCode or install it using [AltStore](https://altstore.io/). Here is the [altstore source](https://raw.githubusercontent.com/chrbayer84/KstApp/refs/heads/main/altstore-source.json) file. Tap "Sources" on the bottom and then the plus in the top left corner. Then tap the KstApp source and click on the "free" button next to KstApp.
+you can either compile it from source using XCode or install it using [AltStore](https://altstore.io/). Here is the [altstore source](https://raw.githubusercontent.com/chrbayer84/KstApp/refs/heads/main/altstore-source.json) file. Tap "Sources" on the bottom and then the plus in the top left corner. Copy the URL "https://raw.githubusercontent.com/chrbayer84/KstApp/refs/heads/main/altstore-source.json" into the text field and add. Then tap the KstApp source and click on the "free" button next to KstApp.
 
 ## Screenshots
 ### iPhone Portrait
