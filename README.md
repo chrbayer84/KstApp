@@ -4,13 +4,24 @@ ON4KST Chat app with Push Notification support. Based on the great work done
 by the [QLog
 team](https://github.com/foldynl/QLog/blob/master/service/kstchat/KSTChat.cpp).
 
+## Installation
+Unfortunately KstApp currently is not available from the Apple Appstore. However 
+you can either compile it from source using XCode or install it using [AltStore](https://altstore.io/). Here is the [altstore source](https://raw.githubusercontent.com/chrbayer84/KstApp/refs/heads/main/altstore-source.json) file. Tap "Sources" on the bottom and then the plus in the top left corner. Then tap the KstApp source and click on the "free" button next to KstApp.
+
+## Screenshots
+### iPhone Portrait
+![iphone](https://github.com/chrbayer84/KstApp/blob/main/iphone.png?raw=true)
+### iPhone landscape
+![iphone_ls](https://github.com/chrbayer84/KstApp/blob/main/iphone_landscape.png?raw=true)
+### iPad
+![ipad](https://github.com/chrbayer84/KstApp/blob/main/ipad.png?raw=true)
+
 
 ## Features
 
 ### Core Features
 - iOS 17.0+ support
 - Universal app (iPhone and iPad)
-- Modern Swift 5.0 code with SwiftUI
 
 ### ON4KST Chat Integration
 - **Multiple Chat Rooms**: Support for all ON4KST chat rooms (50/70 MHz, 144/432 MHz, Microwave, etc.)
