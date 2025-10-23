@@ -10,11 +10,11 @@ you can either compile it from source using XCode or install it using [AltStore]
 
 ## Screenshots
 ### iPhone Portrait
-<img src="https://github.com/chrbayer84/KstApp/blob/main/iphone.png?raw=true" width="600"/>
+<img src="https://github.com/chrbayer84/KstApp/blob/main/iphone.png?raw=true" height="300"/>
 ### iPhone landscape
 <img src="https://github.com/chrbayer84/KstApp/blob/main/iphone_landscape.png?raw=true" width="600"/>
 ### iPad
-<img src="(https://github.com/chrbayer84/KstApp/blob/main/ipad.png?raw=true" width="600"/>
+<img src="https://github.com/chrbayer84/KstApp/blob/main/ipad.png?raw=true" width="600"/>
 
 
 
