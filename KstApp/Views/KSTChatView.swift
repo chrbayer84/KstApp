@@ -600,13 +600,48 @@ struct ChatMessageRow: View {
         return isFromMe
     }
     
+    // Helper to create attributed string with clickable links
+    private var attributedMessage: AttributedString {
+        var attributedString = AttributedString(message.message)
+        
+        // Use NSDataDetector to find URLs
+        let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+        let range = NSRange(location: 0, length: message.message.utf16.count)
+        
+        if let matches = detector?.matches(in: message.message, options: [], range: range) {
+            // Process matches in reverse order to maintain correct indices
+            for match in matches.reversed() {
+                if let url = match.url,
+                   let swiftRange = Range(match.range, in: message.message) {
+                    let attributedRange = Range(swiftRange, in: attributedString)
+                    if let attributedRange = attributedRange {
+                        attributedString[attributedRange].link = url
+                        attributedString[attributedRange].foregroundColor = .blue
+                        attributedString[attributedRange].underlineStyle = .single
+                    }
+                }
+            }
+        }
+        
+        return attributedString
+    }
+    
+    // Extract just the callsign (first word) from sender string
+    private var callsignOnly: String {
+        let trimmed = message.sender.trimmingCharacters(in: .whitespaces)
+        if let spaceIndex = trimmed.firstIndex(where: { $0.isWhitespace }) {
+            return String(trimmed[..<spaceIndex])
+        }
+        return trimmed
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             // Sender and timestamp on the same line
             HStack {
                 if !message.sender.isEmpty {
                     Button(action: {
-                        onCallsignTap(message.sender)
+                        onCallsignTap(callsignOnly)
                     }) {
                         Text(message.sender)
                             .font(.caption)
@@ -623,8 +658,8 @@ struct ChatMessageRow: View {
                     .foregroundColor(.secondary)
             }
             
-            // Message text takes full width
-            Text(message.message)
+            // Message text with clickable links
+            Text(attributedMessage)
                 .font(.body)
                 .background(shouldHighlightGreen ? Color.green.opacity(0.3) : (shouldHighlight ? Color.yellow.opacity(0.3) : Color.clear))
                 .frame(maxWidth: .infinity, alignment: .leading)
