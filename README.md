@@ -59,6 +59,48 @@ you can either compile it from source using XCode or install it using [AltStore]
 - Swift 5.0
 - Network connectivity for ON4KST chat server access
 
+## Building
+
+### Building IPA for Distribution (AltStore/Development)
+
+#### Method 1: Using Xcode GUI
+
+1. **Open the project in Xcode:**
+   ```bash
+   open KstApp.xcodeproj
+   ```
+
+2. **Select a device or "Any iOS Device"** in the scheme selector (not a simulator)
+
+3. **Archive the app:**
+   - Go to **Product → Archive** (or press `⌘+Shift+B` then click "Distribute App")
+   - Wait for the archive to complete
+
+4. **Export the IPA:**
+   - In the Organizer window, select your archive
+   - Click **"Distribute App"**
+   - Choose **"Development"** or **"Ad Hoc"** (for AltStore, use "Development")
+   - Select your team and signing certificate
+   - Choose **"Export"** (not "Upload")
+   - Select a destination folder
+   - The IPA file will be created in the selected folder
+
+#### Method 2: Using Command Line
+Run the ipa export script:
+```bash
+./build-ipa.sh
+```
+
+### Notes
+
+- **For AltStore**: Use `method: development` in ExportOptions.plist
+- **For TestFlight**: Use `method: app-store` in ExportOptions.plist
+- **For Ad Hoc**: Use `method: ad-hoc` in ExportOptions.plist
+- Make sure your Apple Developer account is configured in Xcode
+- The team ID in ExportOptions.plist should match your developer team
+
+
+
 ## License
 
 GPL v3
