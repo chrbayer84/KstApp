@@ -11,6 +11,9 @@ export interface UserSettings {
   deviceToken?: string;       // For APNs (iOS device token)
   pushoverUserKey?: string;   // For Pushover
 
+  // Notification service preference
+  notificationService?: 'apns' | 'pushover';
+
   // Metadata
   createdAt: Date;
   updatedAt: Date;

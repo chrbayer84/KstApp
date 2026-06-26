@@ -18,17 +18,26 @@ class PushoverService {
    * @param message - The message to send
    * @param title - Optional title for the notification
    * @param priority - Optional priority (-2 to 2)
+   * @param url - Optional URL to open when notification is tapped
    * @returns Promise resolving to true if successful, false otherwise
    */
-  sendNotification(userKey: string, message: string, title?: string, priority: number = 0): Promise<boolean> {
+  sendNotification(userKey: string, message: string, title?: string, priority: number = 0, url?: string): Promise<boolean> {
     return new Promise((resolve, reject) => {
-      const postData = querystring.stringify({
+      // Build the post data object
+      const postData: any = {
         token: this.apiToken,
         user: userKey,
         message: message,
         title: title || '',
         priority: priority.toString()
-      });
+      };
+
+      // Add URL if provided
+      if (url !== undefined && url !== null) {
+        postData.url = url;
+      }
+
+      const queryString = querystring.stringify(postData);
 
       const options = {
         method: 'POST',
@@ -36,7 +45,7 @@ class PushoverService {
         path: '/1/messages.json',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Content-Length': Buffer.byteLength(postData)
+          'Content-Length': Buffer.byteLength(queryString)
         }
       };
 
@@ -66,7 +75,7 @@ class PushoverService {
         reject(false);
       });
 
-      req.write(postData);
+      req.write(queryString);
       req.end();
     });
   }

@@ -69,16 +69,17 @@ router.put('/:username', validateUserSettings, async (req: Request, res: Respons
       return res.status(400).json({ error: 'Username parameter is required' });
     }
     
-    const { 
-      on4kstUsername, 
-      on4kstPassword, 
-      gridSquare, 
-      notificationsEnabled, 
+    const {
+      on4kstUsername,
+      on4kstPassword,
+      gridSquare,
+      notificationsEnabled,
       notificationFilter,
       deviceToken,
-      pushoverUserKey
+      pushoverUserKey,
+      notificationService
     } = req.body;
-    
+
     // Extract values, handling possible arrays
     const username = getStringParam(on4kstUsername);
     const password = getStringParam(on4kstPassword);
@@ -87,18 +88,37 @@ router.put('/:username', validateUserSettings, async (req: Request, res: Respons
     const filter = getStringParam(notificationFilter);
     const token = getStringParam(deviceToken);
     const pushKey = getStringParam(pushoverUserKey);
+    const service = getStringParam(notificationService);
     
     // Validate required fields
     if (!username || !password) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: on4kstUsername and on4kstPassword are required' 
+      return res.status(400).json({
+        error: 'Missing required fields: on4kstUsername and on4kstPassword are required'
       });
     }
-    
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({
+        error: 'notificationsEnabled must be a boolean'
+      });
+    }
+
+    if (filter && !['all', 'myCallsign'].includes(filter)) {
+      return res.status(400).json({
+        error: 'notificationFilter must be either "all" or "myCallsign"'
+      });
+    }
+
+    if (service && !['apns', 'pushover'].includes(service)) {
+      return res.status(400).json({
+        error: 'notificationService must be either "apns" or "pushover"'
+      });
+    }
+
     // Verify that the username in params matches the one in body (for security)
     if (username?.toUpperCase() !== usernameParam.toUpperCase()) {
-      return res.status(400).json({ 
-        error: 'Username in URL must match username in request body' 
+      return res.status(400).json({
+        error: 'Username in URL must match username in request body'
       });
     }
     
@@ -111,7 +131,8 @@ router.put('/:username', validateUserSettings, async (req: Request, res: Respons
       notificationFilter: (filter === 'all' || filter === 'myCallsign') ? filter : 'all',
       deviceToken: token || undefined,
       pushoverUserKey: pushKey || undefined,
-      createdAt: new Date(), // Will be updated by service if exists
+      notificationService: service ? (service as 'apns' | 'pushover') : undefined,
+      createdAt: new Date(), // Will be corrected by service if exists
       updatedAt: new Date()
     };
     

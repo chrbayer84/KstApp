@@ -11,12 +11,15 @@ class NotificationService {
   private connections: Map<string, On4kstConnectionManager> = new Map();
   private apnsService: ApnsService | null = null;
   private pushoverService: PushoverService | null = null;
+  private pushoverDeepLinkUrl: string | undefined;
 
   constructor() {
     // Initialize APNs service if credentials are available
     this.initializeApnsService();
     // Initialize Pushover service if credentials are available
     this.initializePushoverService();
+    // Get Pushover deep link URL from environment
+    this.pushoverDeepLinkUrl = process.env.PUSHOVER_DEEP_LINK_URL;
   }
 
   /**
@@ -148,15 +151,40 @@ class NotificationService {
    * Send a push notification to the user
    */
   private async sendPushNotification(settings: UserSettings, message: any): Promise<void> {
-    // Determine which push service to use based on available credentials and user settings
-    if (settings.deviceToken && this.apnsService) {
+    // Determine which push service to use based on user preference and availability
+    let useApns = false;
+    let usePushover = false;
+
+    if (settings.notificationService === 'pushover') {
+      // User prefers Pushover
+      usePushover = !!(settings.pushoverUserKey && this.pushoverService);
+      if (!usePushover) {
+        // Fall back to APNs if Pushover not available
+        useApns = !!(settings.deviceToken && this.apnsService);
+      }
+    } else if (settings.notificationService === 'apns') {
+      // User prefers APNs
+      useApns = !!(settings.deviceToken && this.apnsService);
+      if (!useApns) {
+        // Fall back to Pushover if APNs not available
+        usePushover = !!(settings.pushoverUserKey && this.pushoverService);
+      }
+    } else {
+      // No preference: try APNs first, then Pushover
+      useApns = !!(settings.deviceToken && this.apnsService);
+      if (!useApns) {
+        usePushover = !!(settings.pushoverUserKey && this.pushoverService);
+      }
+    }
+
+    if (useApns) {
       // Use APNs
       try {
         const title = 'ON4KST Chat';
         const body = `${message.sender}: ${message.message}`;
 
-        const success = await this.apnsService.sendNotification(
-          settings.deviceToken,
+        const success = await this.apnsService!.sendNotification(
+          settings.deviceToken!,
           title,
           body
         );
@@ -167,16 +195,18 @@ class NotificationService {
       } catch (error) {
         console.error(`Error sending push notification via APNs to ${settings.username}:`, error);
       }
-    } else if (settings.pushoverUserKey && this.pushoverService) {
+    } else if (usePushover) {
       // Use Pushover
       try {
         const title = 'ON4KST Chat';
         const messageText = `${message.sender}: ${message.message}`;
 
-        const success = await this.pushoverService.sendNotification(
-          settings.pushoverUserKey,
+        const success = await this.pushoverService!.sendNotification(
+          settings.pushoverUserKey!,
           messageText,
-          title
+          title,
+          0, // priority
+          this.pushoverDeepLinkUrl // url
         );
 
         if (!success) {
@@ -188,7 +218,7 @@ class NotificationService {
     } else {
       console.warn(`Cannot send push notification: No valid push service configured for ${settings.username}. ` +
         `APNs: ${this.apnsService ? 'configured' : 'not configured'}, Pushover: ${this.pushoverService ? 'configured' : 'not configured'}. ` +
-        `User has deviceToken: ${!!settings.deviceToken}, pushoverUserKey: ${!!settings.pushoverUserKey}`);
+        `User has deviceToken: ${!!settings.deviceToken}, pushoverUserKey: ${!!settings.pushoverUserKey}, preferred service: ${settings.notificationService || 'none'}`);
     }
   }
   

@@ -31,7 +31,7 @@ The service is designed to run on a Raspberry Pi or any Node.js-capable device a
 - Notification filtering matching iOS app behavior:
   - `all`: Notify for every message
   - `myCallsign`: Notify only when message contains user's callsign in parentheses (case-insensitive)
-- Push notifications via Apple Push Notification Service (APNs) **or** Pushover.net
+- Push notifications via Apple Push Notification Service (APNs) **or** Pushover.net (with configurable deep link URL)
 - Secure HTTP API for settings synchronization
 - Environment-based configuration
 - Comprehensive test suite
@@ -130,6 +130,7 @@ The application is configured via environment variables. Create a `.env` file in
 | `APNS_TEAM_ID` | Apple Team ID | Yes (for APNs) |
 | `APNS_BUNDLE_ID` | Bundle ID of the KstApp iOS app | Yes (for APNs) |
 | `PUSHOVER_API_TOKEN` | Pushover application API token (provided by Pushover when you create an application) | Yes (for Pushover) |
+| `PUSHOVER_DEEP_LINK_URL` | Optional URL to open when a Pushover notification is tapped (e.g., `kstapp://chat`) | No |
 | `ENCRYPTION_KEY` | For encrypting sensitive data at rest (if using persistent storage) | No |
 
 Example `.env` file:
@@ -141,6 +142,7 @@ APNS_KEY_ID=ABC123DEFG
 APNS_TEAM_ID=ABCDE12345
 APNS_BUNDLE_ID=com.example.kstapp
 PUSHOVER_API_TOKEN=your_pushover_application_token_here
+PUSHOVER_DEEP_LINK_URL=kstapp://chat
 ```
 
 ## Usage
