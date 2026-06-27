@@ -2,7 +2,7 @@ import SwiftUI
 import Foundation
 
 struct KSTChatView: View {
-    @StateObject private var chatManager = KSTChatManager()
+    @StateObject private var chatManager = KSTChatManager.shared
     @StateObject private var highlightEvaluator = ChatHighlightEvaluator(roomIndex: 1)
     @State private var messageText = ""
     @State private var showingLogin = false

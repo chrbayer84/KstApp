@@ -7,9 +7,15 @@ import UIKit
 import SystemConfiguration
 import BackgroundTasks
 
+// Import our backend service
+import Foundation  // Already imported, but making sure BackendService is accessible
+
 // MARK: - KST Chat Manager
 class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
-    
+
+    // MARK: - Shared Instance
+    static let shared = KSTChatManager()
+
     // MARK: - Constants
     private static let hostname = "www.on4kst.info"
     private static let port: UInt16 = 23000
@@ -112,14 +118,36 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     // MARK: - User Credentials
     private var username: String = ""
     private var password: String = ""
-    
+
+    // MARK: - Backend Configuration
+    private var backendURL: String {
+        UserDefaults.standard.string(forKey: "KSTBackendURL") ?? ""
+    }
+
+    private var pushoverUserKey: String {
+        UserDefaults.standard.string(forKey: "KSTPushoverUserKey") ?? ""
+    }
+
+    private var deviceToken: String {
+        UserDefaults.standard.string(forKey: "KSTDeviceToken") ?? ""
+    }
+
+    // MARK: - Combine Publishers
+    private var cancellables = Set<AnyCancellable>()
+
     // MARK: - Initialization
-    override init() {
+    private override init() {
         super.init()
         loadCredentials()
         setupNotifications()
         setupAppStateObservers()
         setupNetworkMonitoring()
+        setupSettingsObservers()
+
+        // Set default backend URL if not already set
+        if UserDefaults.standard.string(forKey: "KSTBackendURL") == nil {
+            UserDefaults.standard.set("https://your-backend.example.com", forKey: "KSTBackendURL")
+        }
     }
     
     deinit {
@@ -148,6 +176,8 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         self.storedGridSquare = gridSquare
         
         saveCredentials(username: username, password: password, roomIndex: roomIndex, gridSquare: gridSquare)
+        // Sync settings with backend when connecting
+        syncSettingsWithBackend()
         connectToServer()
     }
     
@@ -524,8 +554,8 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 
                 DispatchQueue.main.async {
                     self.chatMessages.append(chatMsg)
-                    // Send notification for new chat message
-                    self.sendNotificationForNewMessage(chatMsg)
+                    // Notification handling is now done by the backend service
+                    // self.sendNotificationForNewMessage(chatMsg)
                 }
             } else {
                 if currentCommand != .none {
@@ -874,18 +904,102 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     // MARK: - Push Notifications
     private func setupNotifications() {
         UNUserNotificationCenter.current().delegate = self
-        
-        // Request notification permissions
+
+        // Request notification permissions for remote notifications
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             DispatchQueue.main.async {
                 self.notificationsEnabled = granted
+                if granted {
+                    // Register for remote notifications if permission granted
+                    DispatchQueue.main.async {
+                        UIApplication.shared.registerForRemoteNotifications()
+                    }
+                }
             }
             if let error = error {
                 self.debugPrint("Notification permission error: \(error)")
             }
         }
     }
-    
+
+    // MARK: - Remote Notification Handling
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        let tokenParts = deviceToken.map { data -> String in
+            return String(format: "%02.2hhx", data)
+        }
+        let token = tokenParts.joined()
+        debugPrint("Device Token: \(token)")
+
+        // Save device token
+        UserDefaults.standard.set(token, forKey: "KSTDeviceToken")
+
+        // Sync with backend
+        syncSettingsWithBackend()
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        debugPrint("Failed to register for remote notifications: \(error)")
+    }
+
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        debugPrint("Received remote notification: \(userInfo)")
+        // Handle silent push notifications if needed
+        completionHandler(.noData)
+    }
+
+    // MARK: - Backend Synchronization
+    private func syncSettingsWithBackend() {
+        // Only sync if we have a valid backend URL and username
+        guard !backendURL.isEmpty, !username.isEmpty else {
+            debugPrint("Backend URL or username not configured, skipping sync")
+            return
+        }
+
+        BackendService.shared.syncUserSettings(
+            username: username,
+            password: password,
+            gridSquare: myGridSquare,
+            notificationsEnabled: notificationsEnabled,
+            notificationFilter: notificationFilter.rawValue,
+            deviceToken: deviceToken.isEmpty ? nil : deviceToken,
+            pushoverUserKey: pushoverUserKey.isEmpty ? nil : pushoverUserKey
+        ) { [weak self] result in
+            switch result {
+            case .success:
+                self?.debugPrint("Successfully synced settings with backend")
+            case .failure(let error):
+                self?.debugPrint("Failed to sync settings with backend: \(error)")
+            }
+        }
+    }
+
+    private func setupSettingsObservers() {
+        // Observe changes to settings that should trigger a backend sync
+        // These properties are @Published, so we can observe changes via Combine publishers
+        $notificationsEnabled
+            .debounce(for: .seconds(0.5), scheduler: RunLoop.main)
+            .sink { [weak self] (_: Bool) in
+                self?.syncSettingsWithBackend()
+            }
+            .store(in: &cancellables)
+
+        $notificationFilter
+            .debounce(for: .seconds(0.5), scheduler: RunLoop.main)
+            .sink { [weak self] (_: NotificationFilter) in
+                self?.syncSettingsWithBackend()
+            }
+            .store(in: &cancellables)
+
+        $myGridSquare
+            .debounce(for: .seconds(0.5), scheduler: RunLoop.main)
+            .sink { [weak self] (_: String) in
+                self?.syncSettingsWithBackend()
+            }
+            .store(in: &cancellables)
+        // Note: username and password are not @Published and are only set during connectChat(),
+        // which already triggers a sync. No need to observe them separately.
+    }
+
     private func setupAppStateObservers() {
         NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
@@ -1014,6 +1128,8 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             }
         }
     }
+
+    // MARK: - UNUserNotificationCenterDelegate
     
     // MARK: - UNUserNotificationCenterDelegate
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
@@ -1046,6 +1162,9 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         UserDefaults.standard.set(roomIndex, forKey: "KSTRoomIndex")
         UserDefaults.standard.set(gridSquare, forKey: "KSTGridSquare")
         // Note: In a production app, password should be stored in Keychain
+
+        // Sync settings with backend when credentials are updated
+        syncSettingsWithBackend()
     }
     
     // MARK: - Background Task Management

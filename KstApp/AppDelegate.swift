@@ -1,11 +1,29 @@
 import UIKit
+import UserNotifications
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
+
+        // Configure UNUserNotificationCenter delegate
+        UNUserNotificationCenter.current().delegate = KSTChatManager.shared
+
         return true
+    }
+
+    // MARK: - Remote Notification Handling
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        KSTChatManager.shared.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        KSTChatManager.shared.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
+    }
+
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        KSTChatManager.shared.application(application, didReceiveRemoteNotification: userInfo, fetchCompletionHandler: completionHandler)
     }
 
     // MARK: UISceneSession Lifecycle

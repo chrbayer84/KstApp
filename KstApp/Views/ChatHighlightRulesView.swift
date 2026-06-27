@@ -1,8 +1,22 @@
 import SwiftUI
 
+// Placeholder ViewModifier for TextField
+extension View {
+    func placeholder<Content: View>(
+        when shouldShow: Bool,
+        alignment: Alignment = .leading,
+        @ViewBuilder placeholder: () -> Content) -> some View {
+
+        ZStack(alignment: alignment) {
+            placeholder().opacity(shouldShow ? 1 : 0)
+            self
+        }
+    }
+}
+
 struct ChatHighlightRulesView: View {
     @StateObject private var ruleManager = ChatHighlightRuleManager()
-    @StateObject private var chatManager = KSTChatManager()
+    @StateObject private var chatManager = KSTChatManager.shared
     @State private var showingAddRule = false
     @State private var editingRule: ChatHighlightRule?
     
@@ -12,13 +26,48 @@ struct ChatHighlightRulesView: View {
                 // Push Notification Settings Section
                 Section("Push Notifications") {
                     Toggle("Enable Notifications", isOn: $chatManager.notificationsEnabled)
-                    
+
                     Picker("Notification Filter", selection: $chatManager.notificationFilter) {
                         ForEach(KSTChatManager.NotificationFilter.allCases, id: \.self) { filter in
                             Text(filter.displayName).tag(filter)
                         }
                     }
                     .pickerStyle(SegmentedPickerStyle())
+
+                    // Backend URL
+                    Section("Backend Configuration") {
+                        TextField("Backend URL", text: Binding(
+                            get: {
+                                UserDefaults.standard.string(forKey: "KSTBackendURL") ?? ""
+                            },
+                            set: { newValue in
+                                UserDefaults.standard.set(newValue, forKey: "KSTBackendURL")
+                                // Trigger a sync when URL changes
+                                KSTChatManager.shared.syncSettingsWithBackend()
+                            }
+                        ))
+                        .keyboardType(.URL)
+                        .autocapitalization(.none)
+                        .placeholder(when: (UserDefaults.standard.string(forKey: "KSTBackendURL") ?? "").isEmpty) {
+                            Text("https://your-backend.example.com").foregroundColor(.gray)
+                        }
+
+                        // Pushover User Key (only show if using Pushover or if we want to always show it)
+                        // For simplicity, we'll always show it but note it's only used for Pushover
+                        SecureField("Pushover User Key", text: Binding(
+                            get: {
+                                UserDefaults.standard.string(forKey: "KSTPushoverUserKey") ?? ""
+                            },
+                            set: { newValue in
+                                UserDefaults.standard.set(newValue, forKey: "KSTPushoverUserKey")
+                                // Trigger a sync when key changes
+                                KSTChatManager.shared.syncSettingsWithBackend()
+                            }
+                        ))
+                        .placeholder(when: (UserDefaults.standard.string(forKey: "KSTPushoverUserKey") ?? "").isEmpty) {
+                            Text("Enter your Pushover User Key").foregroundColor(.gray)
+                        }
+                    }
                 }
                 
                 // Highlight Rules Section
@@ -232,7 +281,7 @@ struct RuleEditView: View {
 struct ConditionRow: View {
     @Binding var condition: ChatHighlightRule.Condition
     let onDelete: () -> Void
-    @StateObject private var chatManager = KSTChatManager()
+    @StateObject private var chatManager = KSTChatManager.shared
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
