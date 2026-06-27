@@ -947,8 +947,9 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         completionHandler(.noData)
     }
 
+
     // MARK: - Backend Synchronization
-    private func syncSettingsWithBackend() {
+    func syncSettingsWithBackend() {
         // Only sync if we have a valid backend URL and username
         guard !backendURL.isEmpty, !username.isEmpty else {
             debugPrint("Backend URL or username not configured, skipping sync")
@@ -1225,3 +1226,111 @@ private extension DateFormatter {
     }()
 }
 
+// MARK: - Backend Service
+// Note: This class is appended here instead of a separate file because
+// BackendService.swift is not added to the Xcode project (project.pbxproj).
+class BackendService {
+    // MARK: - Shared Instance
+    static let shared = BackendService()
+
+    // MARK: - Private Properties
+    private let baseURL: String
+    private let jsonEncoder = JSONEncoder()
+    private let jsonDecoder = JSONDecoder()
+
+    // MARK: - Initialization
+    private init() {
+        // Get backend URL from UserDefaults
+        self.baseURL = UserDefaults.standard.string(forKey: "KSTBackendURL") ?? ""
+    }
+
+    // MARK: - Public Methods
+    func syncUserSettings(
+        username: String,
+        password: String,
+        gridSquare: String,
+        notificationsEnabled: Bool,
+        notificationFilter: String,
+        deviceToken: String? = nil,
+        pushoverUserKey: String? = nil,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        guard !baseURL.isEmpty else {
+            let error = NSError(
+                domain: "BackendService",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Backend URL not configured"]
+            )
+            completion(.failure(error))
+            return
+        }
+
+        guard let url = URL(string: "\(baseURL)/api/v1/user/\(username)") else {
+            let error = NSError(
+                domain: "BackendService",
+                code: -2,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid backend URL"]
+            )
+            completion(.failure(error))
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let requestBody = UserSettingsRequest(
+            on4kstUsername: username,
+            on4kstPassword: password,
+            gridSquare: gridSquare.isEmpty ? nil : gridSquare,
+            notificationsEnabled: notificationsEnabled,
+            notificationFilter: notificationFilter,
+            deviceToken: deviceToken,
+            pushoverUserKey: pushoverUserKey
+        )
+
+        do {
+            request.httpBody = try jsonEncoder.encode(requestBody)
+        } catch {
+            completion(.failure(error))
+            return
+        }
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                DispatchQueue.main.async {
+                    completion(.failure(error))
+                }
+                return
+            }
+
+            if let httpResponse = response as? HTTPURLResponse,
+               !(200...299).contains(httpResponse.statusCode) {
+                let statusCodeError = NSError(
+                    domain: "BackendService",
+                    code: httpResponse.statusCode,
+                    userInfo: [NSLocalizedDescriptionKey: "Server returned status code \(httpResponse.statusCode)"]
+                )
+                DispatchQueue.main.async {
+                    completion(.failure(statusCodeError))
+                }
+                return
+            }
+
+            DispatchQueue.main.async {
+                completion(.success(()))
+            }
+        }.resume()
+    }
+
+    // MARK: - Private Types
+    private struct UserSettingsRequest: Encodable {
+        let on4kstUsername: String
+        let on4kstPassword: String
+        let gridSquare: String?
+        let notificationsEnabled: Bool
+        let notificationFilter: String
+        let deviceToken: String?
+        let pushoverUserKey: String?
+    }
+}
