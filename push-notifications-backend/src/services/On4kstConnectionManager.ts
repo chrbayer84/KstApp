@@ -98,17 +98,18 @@ class On4kstConnectionManager {
       this.connection = new net.Socket();
       
       this.connection.on('connect', () => {
-        console.log(`[${this.username}] Connected to ON4KST server`);
+        console.log(`[${this.username}] TCP socket connected to ON4KST server`);
+        this.isConnected = true;
         this.isWaitingForLoginPrompt = true;
         this.currentCommand = Command.LOGIN;
         this.commandLineBuffer = [];
         this.receiveBuffer = '';
-        
+
         // Notify connection status change
         if (this.onConnectionStatusChange) {
           this.onConnectionStatusChange(true);
         }
-        
+
         resolve();
       });
 
