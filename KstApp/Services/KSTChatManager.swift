@@ -963,9 +963,14 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     func syncSettingsWithBackend() {
         // Only sync if we have a valid backend URL and username
         guard !backendURL.isEmpty, !username.isEmpty else {
-            debugPrint("Backend URL or username not configured, skipping sync")
+            print("[KST DEBUG] Backend URL or username not configured, skipping sync. backendURL='\(backendURL)' username='\(username)'")
             return
         }
+
+        let room = currentRoomIndex - 1
+        let service = notificationService.isEmpty ? nil : notificationService
+
+        print("[KST DEBUG] Syncing to backend: URL='\(backendURL)', username='\(username)', room='\(room)', notificationsEnabled='\(notificationsEnabled)', filter='\(notificationFilter.rawValue)', pushoverKey='\(pushoverUserKey.isEmpty ? "nil" : "***")', deviceToken='\(deviceToken.isEmpty ? "nil" : "***")', service='\(service ?? "nil")'")
 
         BackendService.shared.syncUserSettings(
             username: username,
@@ -975,14 +980,16 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             notificationFilter: notificationFilter.rawValue,
             deviceToken: deviceToken.isEmpty ? nil : deviceToken,
             pushoverUserKey: pushoverUserKey.isEmpty ? nil : pushoverUserKey,
-            on4kstRoom: currentRoomIndex - 1,
-            notificationService: notificationService.isEmpty ? nil : notificationService
-        ) { [weak self] result in
-            switch result {
-            case .success:
-                self?.debugPrint("Successfully synced settings with backend")
-            case .failure(let error):
-                self?.debugPrint("Failed to sync settings with backend: \(error)")
+            on4kstRoom: room,
+            notificationService: service
+        ) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    print("[KST DEBUG] Successfully synced settings with backend")
+                case .failure(let error):
+                    print("[KST DEBUG] Failed to sync settings with backend: \(error)")
+                }
             }
         }
     }
@@ -1007,6 +1014,15 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         $myGridSquare
             .debounce(for: .seconds(0.5), scheduler: RunLoop.main)
             .sink { [weak self] (_: String) in
+                self?.syncSettingsWithBackend()
+            }
+            .store(in: &cancellables)
+
+        // Observe room changes to sync with backend
+        $currentRoomIndex
+            .debounce(for: .seconds(0.5), scheduler: RunLoop.main)
+            .sink { [weak self] (_: Int) in
+                print("[KST DEBUG] Room changed, syncing to backend")
                 self?.syncSettingsWithBackend()
             }
             .store(in: &cancellables)
@@ -1291,6 +1307,8 @@ class BackendService {
             return
         }
 
+        print("[BACKEND DEBUG] POSTing to URL: \(url.absoluteString)")
+
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1308,7 +1326,11 @@ class BackendService {
         )
 
         do {
-            request.httpBody = try jsonEncoder.encode(requestBody)
+            let bodyData = try jsonEncoder.encode(requestBody)
+            request.httpBody = bodyData
+            if let bodyString = String(data: bodyData, encoding: .utf8) {
+                print("[BACKEND DEBUG] Request body: \(bodyString)")
+            }
         } catch {
             completion(.failure(error))
             return
@@ -1316,23 +1338,29 @@ class BackendService {
 
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
+                print("[BACKEND DEBUG] Network error: \(error)")
                 DispatchQueue.main.async {
                     completion(.failure(error))
                 }
                 return
             }
 
-            if let httpResponse = response as? HTTPURLResponse,
-               !(200...299).contains(httpResponse.statusCode) {
-                let statusCodeError = NSError(
-                    domain: "BackendService",
-                    code: httpResponse.statusCode,
-                    userInfo: [NSLocalizedDescriptionKey: "Server returned status code \(httpResponse.statusCode)"]
-                )
-                DispatchQueue.main.async {
-                    completion(.failure(statusCodeError))
+            if let httpResponse = response as? HTTPURLResponse {
+                print("[BACKEND DEBUG] HTTP response status: \(httpResponse.statusCode)")
+                if let data = data, let bodyString = String(data: data, encoding: .utf8) {
+                    print("[BACKEND DEBUG] Response body: \(bodyString)")
                 }
-                return
+                if !(200...299).contains(httpResponse.statusCode) {
+                    let statusCodeError = NSError(
+                        domain: "BackendService",
+                        code: httpResponse.statusCode,
+                        userInfo: [NSLocalizedDescriptionKey: "Server returned status code \(httpResponse.statusCode)"]
+                    )
+                    DispatchQueue.main.async {
+                        completion(.failure(statusCodeError))
+                    }
+                    return
+                }
             }
 
             DispatchQueue.main.async {

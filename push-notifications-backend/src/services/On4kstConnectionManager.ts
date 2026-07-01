@@ -137,29 +137,35 @@ class On4kstConnectionManager {
       this.connection.on('error', (error: Error) => {
         log.error(`Connection error: ${error.message}`);
         this.handleError(error);
-        
-        // Try to reconnect
-        this.attemptReconnect(reject);
+
+        // Try to reconnect only if we should
+        if (this.shouldReconnect) {
+          this.attemptReconnect(reject);
+        }
       });
 
       this.connection.on('close', (hadError: boolean) => {
         log.info(`Connection closed${hadError ? ' with error' : ''}`);
         this.isConnected = false;
         this.isLoggedIn = false;
-        
+
         // Notify connection status change
         if (this.onConnectionStatusChange) {
           this.onConnectionStatusChange(false);
         }
-        
+
         // Clear timers
         if (this.updateUsersTimer) {
           clearInterval(this.updateUsersTimer);
           this.updateUsersTimer = null;
         }
-        
-        // Try to reconnect
-        this.attemptReconnect(reject);
+
+        // Try to reconnect only if we should
+        if (this.shouldReconnect) {
+          this.attemptReconnect(reject);
+        } else {
+          log.info('Reconnection skipped: auth error or manual disconnect');
+        }
       });
 
       this.connection.connect({
