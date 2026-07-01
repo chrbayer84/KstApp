@@ -37,6 +37,8 @@ class BackendService {
         notificationFilter: String,
         deviceToken: String? = nil,
         pushoverUserKey: String? = nil,
+        on4kstRoom: Int? = nil,
+        notificationService: String? = nil,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
         // Create URL
@@ -55,7 +57,9 @@ class BackendService {
             notificationsEnabled: notificationsEnabled,
             notificationFilter: notificationFilter,
             deviceToken: deviceToken,
-            pushoverUserKey: pushoverUserKey
+            pushoverUserKey: pushoverUserKey,
+            on4kstRoom: on4kstRoom,
+            notificationService: notificationService
         )
 
         do {
@@ -105,6 +109,8 @@ class BackendService {
         let notificationFilter: String
         let deviceToken: String?
         let pushoverUserKey: String?
+        let on4kstRoom: Int?
+        let notificationService: String?
 
         enum CodingKeys: String, CodingKey {
             case on4kstUsername
@@ -114,6 +120,8 @@ class BackendService {
             case notificationFilter
             case deviceToken
             case pushoverUserKey
+            case on4kstRoom
+            case notificationService
         }
     }
 }

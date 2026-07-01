@@ -366,9 +366,10 @@ class On4kstConnectionManager {
     }
 
     if (line.startsWith('Your choice')) {
-      log.info('Received room selection prompt, selecting room 1 (50/70 MHz)');
+      const roomChoice = (this.settings?.on4kstRoom ?? 0) + 1; // stored 0-indexed → server 1-indexed
+      log.info(`Received room selection prompt, selecting room ${roomChoice} (${this.getRoomName()})`);
       this.isWaitingForLoginPrompt = false;
-      this.writeToSocket('1');
+      this.writeToSocket(roomChoice.toString());
       this.isLoggedIn = true;
       this.reconnectAttempts = 0;
       this.startUserListUpdates();
@@ -445,11 +446,14 @@ class On4kstConnectionManager {
    * Get the current room name based on settings
    */
   private getRoomName(): string {
-    // We don't have currentRoomIndex in UserSettings, so we default to room 1
-    const roomIndex = 1; // Default to first room (50/70 MHz)
+    // Default to first room (50/70 MHz) if no settings
+    const roomIndex = this.settings?.on4kstRoom !== undefined && this.settings.on4kstRoom !== null
+      ? this.settings.on4kstRoom
+      : 0; // Default to 0 (50/70 MHz)
+
     const rooms = [
       "50/70 MHz",
-      "144/432 MHz", 
+      "144/432 MHz",
       "Microwave",
       "EME/JT65",
       "Low Band (160-80m)",
@@ -462,8 +466,10 @@ class On4kstConnectionManager {
       "28 MHz",
       "40 MHz"
     ];
-    
-    return rooms[roomIndex - 1] || rooms[0];
+
+    // Ensure roomIndex is within bounds
+    const safeIndex = Math.max(0, Math.min(roomIndex, rooms.length - 1));
+    return rooms[safeIndex];
   }
 
   /**

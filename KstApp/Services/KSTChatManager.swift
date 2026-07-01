@@ -132,6 +132,17 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         UserDefaults.standard.string(forKey: "KSTDeviceToken") ?? ""
     }
 
+    private var notificationService: String {
+        // Prefer Pushover if a key is configured; otherwise use APNs if a device token is present
+        if !pushoverUserKey.isEmpty {
+            return "pushover"
+        }
+        if !deviceToken.isEmpty {
+            return "apns"
+        }
+        return ""
+    }
+
     // MARK: - Combine Publishers
     private var cancellables = Set<AnyCancellable>()
 
@@ -963,7 +974,9 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             notificationsEnabled: notificationsEnabled,
             notificationFilter: notificationFilter.rawValue,
             deviceToken: deviceToken.isEmpty ? nil : deviceToken,
-            pushoverUserKey: pushoverUserKey.isEmpty ? nil : pushoverUserKey
+            pushoverUserKey: pushoverUserKey.isEmpty ? nil : pushoverUserKey,
+            on4kstRoom: currentRoomIndex - 1,
+            notificationService: notificationService.isEmpty ? nil : notificationService
         ) { [weak self] result in
             switch result {
             case .success:
@@ -1253,6 +1266,8 @@ class BackendService {
         notificationFilter: String,
         deviceToken: String? = nil,
         pushoverUserKey: String? = nil,
+        on4kstRoom: Int? = nil,
+        notificationService: String? = nil,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
         guard !baseURL.isEmpty else {
@@ -1265,7 +1280,8 @@ class BackendService {
             return
         }
 
-        guard let url = URL(string: "\(baseURL)/api/v1/user/\(username)") else {
+        let trimmedBaseURL = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: "\(trimmedBaseURL)/api/v1/user/\(username)") else {
             let error = NSError(
                 domain: "BackendService",
                 code: -2,
@@ -1286,7 +1302,9 @@ class BackendService {
             notificationsEnabled: notificationsEnabled,
             notificationFilter: notificationFilter,
             deviceToken: deviceToken,
-            pushoverUserKey: pushoverUserKey
+            pushoverUserKey: pushoverUserKey,
+            on4kstRoom: on4kstRoom,
+            notificationService: notificationService
         )
 
         do {
@@ -1332,5 +1350,7 @@ class BackendService {
         let notificationFilter: String
         let deviceToken: String?
         let pushoverUserKey: String?
+        let on4kstRoom: Int?
+        let notificationService: String?
     }
 }

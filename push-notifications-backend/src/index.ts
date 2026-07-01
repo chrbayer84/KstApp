@@ -13,6 +13,15 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(express.json());
 
+// Path normalization middleware - handle double slashes from clients
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.path.startsWith('//')) {
+    req.url = req.url.replace(/^\/\/+/, '/');
+    log.debug(`Normalized path: ${req.originalUrl} -> ${req.url}`);
+  }
+  next();
+});
+
 // Request logging middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
   log.info(`${new Date().toISOString()} - ${req.method} ${req.path}`);

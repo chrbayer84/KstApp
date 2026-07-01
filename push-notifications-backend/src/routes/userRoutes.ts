@@ -79,7 +79,8 @@ router.put('/:username', validateUserSettings, async (req: Request, res: Respons
       notificationFilter,
       deviceToken,
       pushoverUserKey,
-      notificationService
+      notificationService,
+      on4kstRoom
     } = req.body;
 
     // Extract values, handling possible arrays
@@ -91,6 +92,7 @@ router.put('/:username', validateUserSettings, async (req: Request, res: Respons
     const token = getStringParam(deviceToken);
     const pushKey = getStringParam(pushoverUserKey);
     const service = getStringParam(notificationService);
+    const on4kstRoomParam = getStringParam(on4kstRoom);
     
     // Validate required fields
     if (!username || !password) {
@@ -137,6 +139,16 @@ router.put('/:username', validateUserSettings, async (req: Request, res: Respons
       createdAt: new Date(), // Will be corrected by service if exists
       updatedAt: new Date()
     };
+
+    // Handle room selection - default to 0 (50/70 MHz) if not specified or invalid
+    let roomNum = 0; // Default to 50/70 MHz
+    if (on4kstRoomParam !== undefined && on4kstRoomParam !== null) {
+      const parsed = parseInt(on4kstRoomParam, 10);
+      if (!isNaN(parsed) && parsed >= 0 && parsed <= 20) {
+        roomNum = parsed;
+      }
+    }
+    settings.on4kstRoom = roomNum;
     
     // Save settings
     await UserSettingsService.saveSettings(settings);

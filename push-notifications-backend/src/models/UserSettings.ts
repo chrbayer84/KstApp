@@ -3,6 +3,7 @@ export interface UserSettings {
   password: string;           // ON4KST password
 
   gridSquare?: string;        // Optional Maidenhead grid square
+  on4kstRoom?: number;        // ON4KST room selection (0-20, default 0 for 50/70 MHz)
 
   notificationsEnabled: boolean;
   notificationFilter: 'all' | 'myCallsign';
