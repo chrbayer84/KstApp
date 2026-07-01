@@ -1,6 +1,10 @@
+import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import userRoutes from './routes/userRoutes';
 import NotificationService from './services/NotificationService';
+import { createLogger } from './utils/logger';
+
+const log = createLogger('kst:app');
 
 // Create Express app
 const app = express();
@@ -11,7 +15,7 @@ app.use(express.json());
 
 // Request logging middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  log.info(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
 });
 
@@ -50,7 +54,7 @@ app.use((req: Request, res: Response) => {
 
 // Error handling middleware
 app.use((error: any, req: Request, res: Response, next: NextFunction) => {
-  console.error('Error:', error);
+  log.error('Error:', error);
   res.status(500).json({ 
     error: 'Internal Server Error',
     message: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -59,7 +63,7 @@ app.use((error: any, req: Request, res: Response, next: NextFunction) => {
 
 // Graceful shutdown
 const shutdown = async () => {
-  console.log('Shutting down server...');
+  log.info('Shutting down server...');
   NotificationService.shutdown();
   process.exit(0);
 };
@@ -69,8 +73,8 @@ process.on('SIGTERM', shutdown);
 
 // Start server
 const server = app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  log.info(`Server is running on port ${PORT}`);
+  log.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
 export default app;

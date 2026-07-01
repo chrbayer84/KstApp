@@ -1,5 +1,7 @@
 import apn, { Provider, Notification } from 'apn';
-import { UserSettings } from '../models/UserSettings';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('kst:apns');
 
 /**
  * Service for sending push notifications via Apple Push Notification Service (APNs)
@@ -30,9 +32,9 @@ class ApnsService {
         production: false // Set to true for production
       });
       
-      console.log('APNs provider initialized');
+      log.info('APNs provider initialized');
     } catch (error) {
-      console.error('Failed to initialize APNs provider:', error);
+      log.error('Failed to initialize APNs provider:', error);
       this.provider = null;
     }
   }
@@ -42,12 +44,12 @@ class ApnsService {
    */
   async sendNotification(deviceToken: string, title: string, body: string): Promise<boolean> {
     if (!this.provider) {
-      console.error('APNs provider not initialized');
+      log.error('APNs provider not initialized');
       return false;
     }
     
     if (!deviceToken) {
-      console.error('No device token provided');
+      log.error('No device token provided');
       return false;
     }
     
@@ -66,14 +68,14 @@ class ApnsService {
       
       // Check if the notification was sent successfully
       if (result.sent.length > 0) {
-        console.log(`Notification sent successfully to device: ${deviceToken.substring(0, 10)}...`);
+        log.info(`Notification sent successfully to device: ${deviceToken.substring(0, 10)}...`);
         return true;
       } else {
-        console.warn('Failed to send notification:', result.failed);
+        log.warn('Failed to send notification:', result.failed);
         return false;
       }
     } catch (error) {
-      console.error('Error sending APNs notification:', error);
+      log.error('Error sending APNs notification:', error);
       return false;
     }
   }
@@ -84,7 +86,7 @@ class ApnsService {
   shutdown(): void {
     if (this.provider) {
       this.provider.shutdown();
-      console.log('APNs provider shutdown');
+      log.info('APNs provider shutdown');
     }
   }
 }

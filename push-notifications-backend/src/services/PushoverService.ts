@@ -1,5 +1,8 @@
 import https from 'https';
 import querystring from 'querystring';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('kst:pushover');
 
 /**
  * Service for sending push notifications via Pushover.net
@@ -23,17 +26,34 @@ class PushoverService {
    */
   sendNotification(userKey: string, message: string, title?: string, priority: number = 0, url?: string): Promise<boolean> {
     return new Promise((resolve, reject) => {
-      // Build the post data object
-      const postData: any = {
+      log.debug(`[PUSHOVER] Preparing notification for userKey suffix ${userKey?.slice(-4) || '???'} | message: "${message.substring(0, 50)}..."`);
+
+      // Validate inputs
+      if (!this.apiToken || this.apiToken === 'your_pushover_application_token_here') {
+        log.error('[PUSHOVER] API token is missing or is still the placeholder value.');
+        resolve(false);
+        return;
+      }
+      if (!userKey || userKey.length < 30) {
+        log.error(`[PUSHOVER] Invalid userKey provided (length ${userKey?.length || 0}). A valid Pushover user key is 30 characters.`);
+        resolve(false);
+        return;
+      }
+
+      const postData: Record<string, string> = {
         token: this.apiToken,
         user: userKey,
         message: message,
-        title: title || '',
         priority: priority.toString()
       };
 
+      // Only add title if it's a real, non-empty string — Pushover falls back to app name when omitted
+      if (title && title.trim().length > 0) {
+        postData.title = title;
+      }
+
       // Add URL if provided
-      if (url !== undefined && url !== null) {
+      if (url !== undefined && url !== null && url.trim().length > 0) {
         postData.url = url;
       }
 
@@ -49,29 +69,33 @@ class PushoverService {
         }
       };
 
+      log.debug(`[PUSHOVER] POST body length: ${Buffer.byteLength(queryString)} bytes | fields: ${Object.keys(postData).join(', ')}`);
+
       const req = https.request(options, (res) => {
         let data = '';
         res.on('data', (chunk) => {
           data += chunk;
         });
         res.on('end', () => {
+          log.debug(`[PUSHOVER] HTTP ${res.statusCode} | raw response: ${data.trim()}`);
           try {
             const response = JSON.parse(data);
             if (res.statusCode === 200 && response.status === 1) {
+              log.debug(`[PUSHOVER] Notification sent successfully (request ${response.request})`);
               resolve(true);
             } else {
-              console.error(`Pushover API error:`, response);
+              log.error(`[PUSHOVER] API returned non-success. HTTP ${res.statusCode} body: ${JSON.stringify(response)}`);
               resolve(false);
             }
-          } catch (e) {
-            console.error('Failed to parse Pushover response:', e);
+          } catch (e: any) {
+            log.error(`[PUSHOVER] Failed to parse response body. HTTP ${res.statusCode} raw: "${data}"`, e?.message || e);
             resolve(false);
           }
         });
       });
 
       req.on('error', (error) => {
-        console.error('Error sending Pushover notification:', error);
+        log.error(`Error sending Pushover notification: ${error.message}`);
         reject(false);
       });
 

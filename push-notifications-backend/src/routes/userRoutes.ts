@@ -1,4 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { createLogger } from "../utils/logger";
+const log = createLogger("kst:routes");
 import UserSettingsService from '../services/UserSettingsService';
 import NotificationService from '../services/NotificationService';
 import { UserSettings } from '../models/UserSettings';
@@ -153,7 +155,7 @@ router.put('/:username', validateUserSettings, async (req: Request, res: Respons
       username: usernameParam
     });
   } catch (error) {
-    console.error('Error saving user settings:', error);
+    log.error('Error saving user settings:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -185,7 +187,7 @@ router.get('/:username', async (req: Request, res: Response) => {
       ...safeSettingsWithoutUsername
     });
   } catch (error) {
-    console.error('Error getting user settings:', error);
+    log.error('Error getting user settings:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -213,7 +215,7 @@ router.delete('/:username', async (req: Request, res: Response) => {
     
     res.json({ message: `User settings deleted for user ${usernameParam}` });
   } catch (error) {
-    console.error('Error deleting user settings:', error);
+    log.error('Error deleting user settings:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -242,7 +244,97 @@ router.get('/', async (req: Request, res: Response) => {
     const users = (await Promise.all(usersPromises)).filter((u): u is NonNullable<typeof u> => u !== null);
     res.json({ users, count: users.length });
   } catch (error) {
-    console.error('Error getting users:', error);
+    log.error('Error getting users:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/*
+ * Get connection debug state for a user
+ * GET /api/v1/user/:username/debug
+ */
+router.get('/:username/debug', async (req: Request, res: Response) => {
+  try {
+    const usernameParam = getStringParam(req.params.username);
+    if (!usernameParam) {
+      return res.status(400).json({ error: 'Username parameter is required' });
+    }
+
+    const username = usernameParam.toUpperCase();
+    const connection = NotificationService.getActiveConnections().includes(username)
+      ? (NotificationService as any).connections?.get(username)
+      : null;
+
+    if (!connection) {
+      return res.json({
+        username,
+        connected: false,
+        message: 'No active connection for this user. Check if notifications are enabled and the user was registered.'
+      });
+    }
+
+    // The connection manager is internal, but we can expose its debug state if it has one
+    const debugState = connection.getDebugState ? connection.getDebugState() : {
+      username,
+      connected: connection.isConnectedStatus?.(),
+      note: 'getDebugState() method not available on connection manager'
+    };
+
+    res.json(debugState);
+  } catch (error) {
+    log.error('Error getting debug state:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/*
+ * Send a test Pushover notification to a user
+ * POST /api/v1/user/:username/test-pushover
+ */
+router.post('/:username/test-pushover', async (req: Request, res: Response) => {
+  try {
+    const usernameParam = getStringParam(req.params.username);
+    if (!usernameParam) {
+      return res.status(400).json({ error: 'Username parameter is required' });
+    }
+
+    const result = await NotificationService.testPushoverNotification(usernameParam);
+    if (result.success) {
+      res.json({ success: true, message: result.detail });
+    } else {
+      res.status(400).json({ success: false, error: result.detail });
+    }
+  } catch (error) {
+    log.error('Error sending test Pushover notification:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/*
+ * Simulate an incoming ON4KST message for testing filter/push pipeline
+ * POST /api/v1/user/:username/simulate-message
+ * Body: { sender: "ON1ABC", message: "Test message (ON4KST)" }
+ */
+router.post('/:username/simulate-message', async (req: Request, res: Response) => {
+  try {
+    const usernameParam = getStringParam(req.params.username);
+    if (!usernameParam) {
+      return res.status(400).json({ error: 'Username parameter is required' });
+    }
+
+    const { sender, message } = req.body;
+    if (!sender || !message) {
+      return res.status(400).json({ error: 'sender and message are required in request body' });
+    }
+
+    const result = await NotificationService.simulateMessage(usernameParam, sender, message);
+    if (result.notified) {
+      res.json({ success: true, message: result.detail });
+    } else {
+      res.status(400).json({ success: false, error: result.detail });
+    }
+  } catch (error) {
+    log.error('Error simulating message:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

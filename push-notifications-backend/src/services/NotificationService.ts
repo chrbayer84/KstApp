@@ -3,6 +3,9 @@ import ApnsService from './ApnsService';
 import PushoverService from './PushoverService';
 import UserSettingsService from './UserSettingsService';
 import { UserSettings } from '../models/UserSettings';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('kst:notifications');
 
 /**
  * Main service that coordinates ON4KST connections and push notifications
@@ -34,12 +37,12 @@ class NotificationService {
     if (keyPath && keyId && teamId && bundleId) {
       try {
         this.apnsService = new ApnsService(keyPath, keyId, teamId, bundleId);
-        console.log('APNs service initialized');
+        log.info('APNs service initialized');
       } catch (error) {
-        console.error('Failed to initialize APNs service:', error);
+        log.error('Failed to initialize APNs service:', error);
       }
     } else {
-      console.log('APNs credentials not fully configured - push notifications disabled');
+      log.info('APNs credentials not fully configured - push notifications disabled');
     }
   }
 
@@ -52,12 +55,12 @@ class NotificationService {
     if (apiToken) {
       try {
         this.pushoverService = new PushoverService(apiToken);
-        console.log('Pushover service initialized');
+        log.info('Pushover service initialized');
       } catch (error) {
-        console.error('Failed to initialize Pushover service:', error);
+        log.error('Failed to initialize Pushover service:', error);
       }
     } else {
-      console.log('Pushover API token not configured - push notifications via Pushover disabled');
+      log.info('Pushover API token not configured - push notifications via Pushover disabled');
     }
   }
 
@@ -67,11 +70,14 @@ class NotificationService {
    * Start handling notifications for a user
    */
   async startUserNotifications(settings: UserSettings): Promise<void> {
+    log.info(`[NOTIFY] Starting notifications for ${settings.username} | filter=${settings.notificationFilter} | pref=${settings.notificationService || 'none'} | pushoverKey=${!settings.pushoverUserKey ? 'missing' : settings.pushoverUserKey.slice(-4)} | deviceToken=${!!settings.deviceToken}`);
+
     // Stop any existing connection for this user
     await this.stopUserNotifications(settings.username);
 
     // Only create connection if notifications are enabled
     if (!settings.notificationsEnabled) {
+      log.debug(`[NOTIFY] Notifications disabled for ${settings.username}, no connection created.`);
       return;
     }
 
@@ -85,11 +91,11 @@ class NotificationService {
     });
 
     connection.setOnConnectionStatusChange((isConnected) => {
-      console.log(`[${settings.username}] Connection status: ${isConnected ? 'Connected' : 'Disconnected'}`);
+      log.info(`[${settings.username}] Connection status: ${isConnected ? 'Connected' : 'Disconnected'}`);
     });
 
     connection.setOnError((error) => {
-      console.error(`[${settings.username}] Connection error:`, error);
+      log.error(`[${settings.username}] Connection error:`, error);
       // Attempt to restart connection after error
       setTimeout(() => {
         this.startUserNotifications(settings).catch(console.error);
@@ -112,7 +118,7 @@ class NotificationService {
       try {
         await connection.disconnect();
       } catch (error) {
-        console.error(`Error disconnecting ${username}:`, error);
+        log.error(`Error disconnecting ${username}:`, error);
       }
       this.connections.delete(username);
     }
@@ -122,27 +128,42 @@ class NotificationService {
    * Handle an incoming message from ON4KST
    */
   private async handleIncomingMessage(username: string, message: any): Promise<void> {
+    log.debug(`[NOTIFY] handleIncomingMessage for ${username} | sender=${message.sender} | msg=${JSON.stringify(message.message).substring(0, 100)}`);
+
     // Get user settings
     const settings = await UserSettingsService.getSettings(username);
-    if (!settings || !settings.notificationsEnabled) {
+    if (!settings) {
+      log.warn(`[NOTIFY] No settings found for ${username} — skipping notification. Registered users: [${UserSettingsService.getAllUsernames().join(', ')}]`);
+      return;
+    }
+    if (!settings.notificationsEnabled) {
+      log.debug(`[NOTIFY] Notifications disabled for ${username} — skipping message.`);
       return; // Notifications disabled for this user
     }
-    
+
+    log.debug(`[NOTIFY] Settings for ${username}: filter=${settings.notificationFilter} | service=${settings.notificationService || 'none'} | pushoverKey=${settings.pushoverUserKey?.slice(-4) || 'N/A'} | deviceToken=${!!settings.deviceToken}`);
+
     // Apply notification filter
     let shouldNotify = false;
-    
+
     if (settings.notificationFilter === 'all') {
       shouldNotify = true;
+      log.debug(`[NOTIFY] Filter='all' → will notify for message from ${message.sender}.`);
     } else if (settings.notificationFilter === 'myCallsign') {
       // Check if message contains user's callsign in parentheses (case-insensitive)
       const pattern = new RegExp(`\\(${settings.username.toUpperCase()}\\)`, 'i');
       shouldNotify = pattern.test(message.message);
+      log.debug(`[NOTIFY] Filter='myCallsign' looking for pattern "\\(${username.toUpperCase()}\\)" in "${message.message}": ${shouldNotify ? 'MATCH' : 'NO MATCH'}`);
+    } else {
+      log.warn(`[NOTIFY] Unknown filter "${settings.notificationFilter}" for ${username} — skipping notification.`);
     }
-    
+
     if (!shouldNotify) {
+      log.debug(`[NOTIFY] Filter rejected message from ${message.sender} — no push notification will be sent.`);
       return; // Message doesn't match filter
     }
-    
+
+    log.info(`[NOTIFY] Message from ${message.sender} matches filter for ${username} — sending push notification.`);
     // Send push notification
     await this.sendPushNotification(settings, message);
   }
@@ -151,6 +172,8 @@ class NotificationService {
    * Send a push notification to the user
    */
   private async sendPushNotification(settings: UserSettings, message: any): Promise<void> {
+    log.debug(`[NOTIFY] sendPushNotification for ${settings.username} | userPref=${settings.notificationService || 'none'} | pushoverService=${this.pushoverService ? 'init' : 'NULL'} | apnsService=${this.apnsService ? 'init' : 'NULL'} | pushoverKey=${settings.pushoverUserKey?.slice(-4) || 'NULL'} | deviceToken=${!!settings.deviceToken}`);
+
     // Determine which push service to use based on user preference and availability
     let useApns = false;
     let usePushover = false;
@@ -158,26 +181,33 @@ class NotificationService {
     if (settings.notificationService === 'pushover') {
       // User prefers Pushover
       usePushover = !!(settings.pushoverUserKey && this.pushoverService);
+      log.debug(`[NOTIFY] User prefers pushover. pushoverKey=${!!settings.pushoverUserKey} pushoverService=${!!this.pushoverService} → usePushover=${usePushover}`);
       if (!usePushover) {
         // Fall back to APNs if Pushover not available
         useApns = !!(settings.deviceToken && this.apnsService);
+        log.debug(`[NOTIFY] Pushover not available, fallback to APNs: deviceToken=${!!settings.deviceToken} apnsService=${!!this.apnsService} → useApns=${useApns}`);
       }
     } else if (settings.notificationService === 'apns') {
       // User prefers APNs
       useApns = !!(settings.deviceToken && this.apnsService);
+      log.debug(`[NOTIFY] User prefers APNs. deviceToken=${!!settings.deviceToken} apnsService=${!!this.apnsService} → useApns=${useApns}`);
       if (!useApns) {
         // Fall back to Pushover if APNs not available
         usePushover = !!(settings.pushoverUserKey && this.pushoverService);
+        log.debug(`[NOTIFY] APNs not available, fallback to Pushover: pushoverKey=${!!settings.pushoverUserKey} pushoverService=${!!this.pushoverService} → usePushover=${usePushover}`);
       }
     } else {
       // No preference: try APNs first, then Pushover
       useApns = !!(settings.deviceToken && this.apnsService);
+      log.debug(`[NOTIFY] No service preference. Try APNs: deviceToken=${!!settings.deviceToken} apnsService=${!!this.apnsService} → useApns=${useApns}`);
       if (!useApns) {
         usePushover = !!(settings.pushoverUserKey && this.pushoverService);
+        log.debug(`[NOTIFY] APNs not available, try Pushover: pushoverKey=${!!settings.pushoverUserKey} pushoverService=${!!this.pushoverService} → usePushover=${usePushover}`);
       }
     }
 
     if (useApns) {
+      log.debug(`[NOTIFY] Sending via APNs to ${settings.username}...`);
       // Use APNs
       try {
         const title = 'ON4KST Chat';
@@ -189,13 +219,15 @@ class NotificationService {
           body
         );
 
+        log.debug(`[NOTIFY] APNs send result: ${success ? 'SUCCESS' : 'FAILED'}`);
         if (!success) {
-          console.warn(`Failed to send push notification via APNs to ${settings.username}`);
+          log.warn(`Failed to send push notification via APNs to ${settings.username}`);
         }
       } catch (error) {
-        console.error(`Error sending push notification via APNs to ${settings.username}:`, error);
+        log.error(`Error sending push notification via APNs to ${settings.username}:`, error);
       }
     } else if (usePushover) {
+      log.debug(`[NOTIFY] Sending via Pushover to ${settings.username}...`);
       // Use Pushover
       try {
         const title = 'ON4KST Chat';
@@ -209,14 +241,15 @@ class NotificationService {
           this.pushoverDeepLinkUrl // url
         );
 
+        log.debug(`[NOTIFY] Pushover send result: ${success ? 'SUCCESS' : 'FAILED'}`);
         if (!success) {
-          console.warn(`Failed to send push notification via Pushover to ${settings.username}`);
+          log.warn(`Failed to send push notification via Pushover to ${settings.username}`);
         }
       } catch (error) {
-        console.error(`Error sending push notification via Pushover to ${settings.username}:`, error);
+        log.error(`Error sending push notification via Pushover to ${settings.username}:`, error);
       }
     } else {
-      console.warn(`Cannot send push notification: No valid push service configured for ${settings.username}. ` +
+      log.warn(`Cannot send push notification: No valid push service configured for ${settings.username}. ` +
         `APNs: ${this.apnsService ? 'configured' : 'not configured'}, Pushover: ${this.pushoverService ? 'configured' : 'not configured'}. ` +
         `User has deviceToken: ${!!settings.deviceToken}, pushoverUserKey: ${!!settings.pushoverUserKey}, preferred service: ${settings.notificationService || 'none'}`);
     }
@@ -228,7 +261,108 @@ class NotificationService {
   getActiveConnections(): string[] {
     return Array.from(this.connections.keys());
   }
-  
+
+  /**
+   * Get diagnostic state for all connections
+   */
+  getDebugState(username?: string): any {
+    const result: any = {
+      serverStats: {
+        pushoverService: !!this.pushoverService,
+        apnsService: !!this.apnsService,
+        pushoverDeepLinkUrl: this.pushoverDeepLinkUrl,
+        registeredUsers: UserSettingsService.getAllUsernames(),
+      },
+      connections: {}
+    };
+
+    if (username) {
+      // Get state for a specific user
+      const connection = this.connections.get(username.toUpperCase());
+      const settings = UserSettingsService.getSettings(username);
+      // UserSettingsService.getSettings is async, but it's synchronous in our in-memory implementation
+      // We use a synchronous approach since the service is actually synchronous despite the async signature
+      result.connections[username.toUpperCase()] = {
+        hasActiveConnection: !!connection,
+        connectionState: connection ? connection.getDebugState() : null,
+      };
+      // Fetch settings synchronously via the internal Map
+      result.userSettings = settings ? (async () => {
+        const s = await settings;
+        if (s) {
+          const { password, ...safe } = s;
+          return safe;
+        }
+        return null;
+      })() : null;
+    } else {
+      for (const [user, connection] of this.connections.entries()) {
+        result.connections[user] = connection.getDebugState();
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Send a test push notification directly via Pushover (no on4kst message needed)
+   */
+  async testPushoverNotification(username: string): Promise<{ success: boolean; detail: string }> {
+    const settings = await UserSettingsService.getSettings(username.toUpperCase());
+    if (!settings) {
+      log.error(`[TEST] No settings found for ${username}`);
+      return { success: false, detail: `No settings found for "${username}". Have you PUT /api/v1/user/${username} already?` };
+    }
+
+    if (!this.pushoverService) {
+      log.error('[TEST] Pushover service is not initialized');
+      return { success: false, detail: 'Pushover service is not initialized. Check PUSHOVER_API_TOKEN in .env.' };
+    }
+
+    if (!settings.pushoverUserKey) {
+      log.error(`[TEST] ${username} has no pushoverUserKey`);
+      return { success: false, detail: `No pushoverUserKey set for "${username}". Include "pushoverUserKey" in your PUT body.` };
+    }
+
+    log.info(`[TEST] Sending test Pushover notification to ${username} (userKey suffix ${settings.pushoverUserKey.slice(-4)})`);
+    const result = await this.pushoverService.sendNotification(
+      settings.pushoverUserKey,
+      `Test notification from KstApp backend at ${new Date().toISOString()}. If you see this, Pushover integration works!`,
+      'Test Notification',
+      0
+    );
+
+    return { success: result, detail: result ? 'Notification sent successfully. Check your Pushover app.' : 'Pushover API returned an error. Check the server logs for details.' };
+  }
+
+  /**
+   * Simulate an incoming ON4KST message for testing the filter and push pipeline
+   */
+  async simulateMessage(username: string, sender: string, messageText: string): Promise<{ notified: boolean; detail: string }> {
+    const settings = await UserSettingsService.getSettings(username.toUpperCase());
+    if (!settings) {
+      log.error(`[SIM] No settings found for ${username}`);
+      return { notified: false, detail: `No settings found for "${username}".` };
+    }
+
+    const fakeMessage = {
+      time: new Date().toISOString().substring(11, 16).replace(':', '') + 'Z',
+      sender: sender,
+      message: messageText
+    };
+
+    log.info(`[SIM] Simulating message from ${sender}: "${messageText}" for ${username}`);
+
+    // Directly call handleIncomingMessage to test the full pipeline
+    try {
+      // Make private methods accessible via (this as any) hack for testing
+      (this as any).handleIncomingMessage(username, fakeMessage);
+      return { notified: true, detail: `Message "${sender}: ${messageText}" was processed. Check logs for filter/service decisions. If nothing arrived on your phone, check the filter: "${settings.notificationFilter}" and that ${settings.notificationService || 'default (APNs first)'} is available.` };
+    } catch (error: any) {
+      return { notified: false, detail: `Error: ${error?.message || error}` };
+    }
+  }
+
   /**
    * Shutdown all services
    */
@@ -238,7 +372,7 @@ class NotificationService {
       try {
         connection.disconnect();
       } catch (error) {
-        console.error(`Error disconnecting ${username} during shutdown:`, error);
+        log.error(`Error disconnecting ${username} during shutdown:`, error);
       }
     }
     this.connections.clear();

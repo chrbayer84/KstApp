@@ -1,6 +1,9 @@
 import net from 'net';
 import { UserSettings } from '../models/UserSettings';
 import UserSettingsService from './UserSettingsService';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('kst:connection');
 
 // Message types
 interface ChatMessage {
@@ -40,11 +43,13 @@ class On4kstConnectionManager {
   private currentCommand: Command = Command.NONE;
   private commandLineBuffer: string[] = [];
   private isConnected: boolean = false;
+  private isLoggedIn: boolean = false;
   private isWaitingForLoginPrompt: boolean = false;
   private updateUsersTimer: NodeJS.Timeout | null = null;
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
   private reconnectDelay: number = 5000; // Start with 5 seconds
+  private shouldReconnect: boolean = true; // Set to false on auth errors
   
   // For storing user list (callsign -> grid mapping)
   private userList: Map<string, { grid: string; name: string }> = new Map();
@@ -57,6 +62,17 @@ class On4kstConnectionManager {
   constructor(username: string) {
     this.username = username.toUpperCase(); // ON4KST uses uppercase callsigns
   }
+
+  // Diagnostic state tracking
+  private lastMessages: string[] = [];
+  private diagnosticStats = {
+    linesReceived: 0,
+    chatMessagesDetected: 0,
+    commandCompletions: 0,
+    userListLines: 0,
+    unrecognizedLines: 0,
+    lastActivityAt: ''
+  };
 
   /**
    * Set the user settings for this connection
@@ -98,10 +114,11 @@ class On4kstConnectionManager {
       this.connection = new net.Socket();
       
       this.connection.on('connect', () => {
-        console.log(`[${this.username}] TCP socket connected to ON4KST server`);
+        log.info('TCP socket connected to ON4KST server');
         this.isConnected = true;
+        this.isLoggedIn = false;
         this.isWaitingForLoginPrompt = true;
-        this.currentCommand = Command.LOGIN;
+        this.currentCommand = Command.NONE;
         this.commandLineBuffer = [];
         this.receiveBuffer = '';
 
@@ -118,7 +135,7 @@ class On4kstConnectionManager {
       });
 
       this.connection.on('error', (error: Error) => {
-        console.error(`[${this.username}] Connection error:`, error);
+        log.error(`Connection error: ${error.message}`);
         this.handleError(error);
         
         // Try to reconnect
@@ -126,8 +143,9 @@ class On4kstConnectionManager {
       });
 
       this.connection.on('close', (hadError: boolean) => {
-        console.log(`[${this.username}] Connection closed${hadError ? ' with error' : ''}`);
+        log.info(`Connection closed${hadError ? ' with error' : ''}`);
         this.isConnected = false;
+        this.isLoggedIn = false;
         
         // Notify connection status change
         if (this.onConnectionStatusChange) {
@@ -188,52 +206,100 @@ class On4kstConnectionManager {
   }
 
   /**
+   * Write raw data to the socket (for login sequence only)
+   */
+  private writeToSocket(message: string): void {
+    if (!this.connection || !this.isConnected) {
+      log.error('Cannot write to socket: not connected');
+      return;
+    }
+    log.debug(`Writing to socket: ${message}`);
+    this.connection.write(message + '\r\n');
+  }
+
+  /**
    * Send a command to the ON4KST server
    */
   private sendCommand(command: Command, message: string): Promise<CommandResponse> {
     return new Promise((resolve, reject) => {
-      // If we're already processing a command (and it's not login), queue this one
-      if (this.currentCommand !== Command.NONE && this.currentCommand !== Command.LOGIN) {
+      // If we're already processing a command, queue this one
+      if (this.currentCommand !== Command.NONE) {
+        log.debug(`Queueing leftover command: ${this.currentCommand} - waiting for completion`);
         this.commandQueue.push({ command, message, resolve, reject });
         return;
       }
-      
-      // Set current command (except for NONE which is used for raw messages)
-      if (command !== Command.NONE) {
-        this.currentCommand = command;
-        this.commandLineBuffer = [];
-      }
-      
-      // Send the command
-      if (!this.connection || !this.isConnected) {
-        reject(new Error('Not connected to ON4KST server'));
-        return;
-      }
-     
-      const data = message + '\r\n';
-      this.connection.write(data, (err) => {
-        if (err) {
-          reject(err);
-        }
-        // Resolution will happen when we receive the command completion signal
-      });
+
+      this.executeCommand(command, message, resolve, reject);
     });
+  }
+
+  /**
+   * Execute a command immediately (internal use only)
+   */
+  private executeCommand(command: Command, message: string, resolve: (value: CommandResponse | PromiseLike<CommandResponse>) => void, reject: (reason?: any) => void): void {
+    // Set current command (except for NONE which is used for raw messages)
+    if (command !== Command.NONE) {
+      this.currentCommand = command;
+      this.commandLineBuffer = [];
+    }
+
+    // Send the command
+    if (!this.connection || !this.isConnected) {
+      reject(new Error('Not connected to ON4KST server'));
+      return;
+    }
+
+    const data = message + '\r\n';
+    log.debug(`Sending command [${command}]: ${message}`);
+    this.connection.write(data, (err) => {
+      if (err) {
+        log.error(`Error sending command: ${err.message}`);
+        reject(err);
+      }
+      // Resolution will happen when we receive the command completion signal
+    });
+  }
+
+  /**
+   * Process the command queue, sending any pending commands
+   */
+  private processCommandQueue(): void {
+    if (this.commandQueue.length === 0) {
+      return;
+    }
+    if (this.currentCommand !== Command.NONE) {
+      log.debug(`Cannot process command queue, current command is: ${this.currentCommand}`);
+      return;
+    }
+
+    const next = this.commandQueue.shift()!;
+    log.debug(`Processing queued command: ${next.command}`);
+    this.executeCommand(next.command, next.message, next.resolve, next.reject);
+
+    // Keep processing if there are more
+    if (this.commandQueue.length > 0) {
+      this.processCommandQueue();
+    }
   }
 
   /**
    * Process incoming data from the socket
    */
   private processReceivedData(data: string): void {
+    // Log raw received data for debugging (useful to see what ON4KST sends)
+    log.debug(`RAW RX [${data.length} bytes]: ${JSON.stringify(data)}`);
+
     this.receiveBuffer += data;
     const lines = this.splitLines();
-    
+
     for (const line of lines) {
       this.processLine(line.trim());
     }
-    
+
     // Check if we're still waiting for login prompt and have more data
     if (this.isWaitingForLoginPrompt && this.receiveBuffer.length > 0) {
       // Keep waiting - the prompt might come in chunks
+      log.debug(`Still waiting for login prompt, buffer has ${this.receiveBuffer.length} bytes: ${JSON.stringify(this.receiveBuffer)}`);
     }
   }
 
@@ -270,77 +336,99 @@ class On4kstConnectionManager {
     if (!line) {
       return;
     }
-    
-    // Debug logging
-    // console.log(`[${this.username}] Received: "${line}"`);
-    
-    // Handle login prompts
+
+    this.diagnosticStats.linesReceived++;
+    this.diagnosticStats.lastActivityAt = new Date().toISOString();
+    this.addToRecentMessage(line);
+    log.debug(`[LINE] "${line.substring(0,100)}" | waitingLogin=${this.isWaitingForLoginPrompt} currentCmd=${this.currentCommand}`);
+
+    // Handle login prompts - use direct socket writes to avoid command queue issues
     if (line.startsWith('Login:')) {
+      log.info('Received login prompt, sending username');
       this.isWaitingForLoginPrompt = false;
       if (this.settings) {
-        this.sendCommand(Command.LOGIN, this.settings.username);
+        this.writeToSocket(this.settings.username);
+      } else {
+        log.error('No settings available for login!');
       }
       return;
     }
-    
+
     if (line.startsWith('Password:')) {
+      log.info('Received password prompt, sending password');
       this.isWaitingForLoginPrompt = false;
       if (this.settings) {
-        this.sendCommand(Command.PASSWORD, this.settings.password);
+        this.writeToSocket(this.settings.password);
+      } else {
+        log.error('No settings available for password!');
       }
       return;
     }
-    
+
     if (line.startsWith('Your choice')) {
+      log.info('Received room selection prompt, selecting room 1 (50/70 MHz)');
       this.isWaitingForLoginPrompt = false;
-      // Default to room 1 (50/70 MHz) if not specified in settings
-      // Note: We don't have currentRoomIndex in UserSettings, so we default to 1
-      this.sendCommand(Command.ROOM, '1');
+      this.writeToSocket('1');
+      this.isLoggedIn = true;
+      this.reconnectAttempts = 0;
+      this.startUserListUpdates();
+      log.info('Login sequence complete, started user list updates');
       return;
     }
-    
+
     // Handle error messages
     if (line.startsWith('Unknown user')) {
+      this.shouldReconnect = false;
       this.handleError(new Error('Unknown user'));
       return;
     }
-    
+
     if (line.startsWith('Wrong password!')) {
+      this.shouldReconnect = false;
       this.handleError(new Error('Invalid password'));
       return;
     }
-    
+
     // Check for command completion
     if (this.isWaitingForResponse(line)) {
+      log.debug(`[CLASSIFY] treating as command completion: "${line.substring(0,100)}"`);
+      this.diagnosticStats.commandCompletions++;
       this.handleCommandCompletion(line);
       return;
     }
-    
+
     // If we're waiting for login prompt, ignore other lines
     if (this.isWaitingForLoginPrompt) {
+      log.debug(`[CLASSIFY] ignoring line during login wait: "${line.substring(0,100)}"`);
       return;
     }
-    
+
     // Check if this is a chat message
     if (this.isChatMessage(line)) {
+      log.debug(`[CLASSIFY] detected as chat message: "${line.substring(0,100)}"`);
+      this.diagnosticStats.chatMessagesDetected++;
       this.handleChatMessage(line);
       return;
     }
-    
+
     // Check if this looks like user list data
     if (this.isUserListData(line)) {
+      log.debug(`[CLASSIFY] detected as user list data: "${line.substring(0,100)}"`);
+      this.diagnosticStats.userListLines++;
       this.processUserListLine(line);
       return;
     }
     
     // If we're expecting a command response, add to buffer
     if (this.currentCommand !== Command.NONE) {
+      log.debug(`[CLASSIFY] buffering for command ${this.currentCommand}: "${line.substring(0,100)}"`);
       this.commandLineBuffer.push(line);
       return;
     }
-    
+
     // Unrecognized line
-    console.log(`[${this.username}] Unrecognized line: "${line}"`);
+    this.diagnosticStats.unrecognizedLines++;
+    log.warn(`[CLASSIFY] Unrecognized line: "${line}"`);
   }
 
   /**
@@ -385,63 +473,65 @@ class On4kstConnectionManager {
     // Extract the message part after "chat>"
     const match = line.match(/^([0-9]{4})Z [^>]+>chat>(.*)$/);
     const messageContent = match ? match[2] : '';
-    
+
     let response: CommandResponse = { success: true, data: messageContent };
-    
+
+    log.debug(`Handling command completion for: ${this.currentCommand}`);
+
     // Process based on the command we were waiting for
     switch (this.currentCommand) {
       case Command.LOGIN:
-        // Login completed successfully
+      case Command.ROOM:
+        // Login/room selection completed successfully
         this.isConnected = true;
         this.reconnectAttempts = 0; // Reset reconnect counter on success
-        this.startUserListUpdates();
-        
+
         // Add login completion message to chat if there's content
         if (messageContent.trim()) {
           this.addToChatMessageBuffer(messageContent);
         }
         break;
-        
+
       case Command.SET_GRID:
         // Grid set completed
         if (messageContent.trim()) {
           this.addToChatMessageBuffer(messageContent);
         }
         break;
-        
+
       case Command.SHOW_USERS:
         // Process user list
         this.processUserListBuffer(this.commandLineBuffer);
         // Don't add user list to chat messages
         break;
-        
+
       case Command.SHOW_MESSAGES:
         // Process message history (we don't notify on history)
         this.processMessageHistoryBuffer(this.commandLineBuffer);
         // Don't add message history to chat messages
         break;
-        
+
       case Command.USER:
         // User command completed
         if (messageContent.trim()) {
           this.addToChatMessageBuffer(messageContent);
         }
         break;
-        
+
       case Command.NONE:
+      case Command.PASSWORD:
         // Shouldn't happen, but just in case
         break;
     }
-    
-    // Resolve any waiting promise for this command
-    if (this.commandQueue.length > 0) {
-      const next = this.commandQueue.shift()!;
-      next.resolve(response);
-    }
-    
-    // Reset command state
+
+    // Reset command state before processing queue to allow new commands
     this.currentCommand = Command.NONE;
     this.commandLineBuffer = [];
+
+    // Process any queued commands
+    if (this.commandQueue.length > 0) {
+      this.processCommandQueue();
+    }
   }
 
   /**
@@ -467,21 +557,27 @@ class On4kstConnectionManager {
   private handleChatMessage(line: string): void {
     const match = line.match(/^([0-9]{4})Z (.*)>(.*)$/);
     if (!match) {
+      log.warn(`[CHAT] Regex failed for presumed chat line: "${line}"`);
       return;
     }
-    
+
     const [, time, sender, message] = match;
-    
+
+    log.debug(`[CHAT] Parsed: time=${time}, sender="${sender.trim()}", message="${message.trim().substring(0,60)}..."`);
+
     // Create chat message object
     const chatMessage: ChatMessage = {
       time: time, // HHMM format (UTC)
       sender: sender.trim(),
       message: message.startsWith(' ') ? message.substring(1) : message, // Remove leading space if present
     };
-    
+
     // Notify listeners
     if (this.onMessageReceived) {
+      log.debug(`[CHAT] Delivering to listener: ${JSON.stringify(chatMessage)}`);
       this.onMessageReceived(chatMessage);
+    } else {
+      log.warn('[CHAT] No message received callback registered!');
     }
   }
 
@@ -525,7 +621,7 @@ class On4kstConnectionManager {
       this.processUserListLine(line);
     }
     
-    console.log(`[${this.username}] Updated user list: ${this.userList.size} users`);
+    log.info(`Updated user list: ${this.userList.size} users`);
   }
 
   /**
@@ -534,7 +630,7 @@ class On4kstConnectionManager {
   private processMessageHistoryBuffer(buffer: string[]): void {
     // We don't store or process message history for notifications
     // Just consume it to keep the connection clean
-    console.log(`[${this.username}] Processed ${buffer.length} lines of message history`);
+    log.info(`Processed ${buffer.length} lines of message history`);
   }
 
   /**
@@ -559,8 +655,8 @@ class On4kstConnectionManager {
    * Handle connection errors
    */
   private handleError(error: Error): void {
-    console.error(`[${this.username}] Error:`, error.message);
-    
+    log.error(`Error: ${error.message}`);
+
     if (this.onError) {
       this.onError(error);
     }
@@ -572,19 +668,19 @@ class On4kstConnectionManager {
   private attemptReconnect(reject: (reason?: any) => void): void {
     // Don't reconnect if we're already trying to connect or if we've maxed out attempts
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error(`[${this.username}] Max reconnect attempts reached. Giving up.`);
+      log.error('Max reconnect attempts reached. Giving up.');
       if (this.onError) {
         this.onError(new Error('Max reconnect attempts reached'));
       }
       reject(new Error('Max reconnect attempts reached'));
       return;
     }
-    
+
     // Calculate delay with exponential backoff
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts);
     this.reconnectAttempts++;
-    
-    console.log(`[${this.username}] Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+
+    log.info(`Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
     
     setTimeout(() => {
       this.connect().catch(reject);
@@ -611,6 +707,34 @@ class On4kstConnectionManager {
    */
   isConnectedStatus(): boolean {
     return this.isConnected && this.connection !== null && this.connection.writable;
+  }
+
+  /**
+   * Get diagnostic information about this connection
+   */
+  getDebugState(): any {
+    return {
+      username: this.username,
+      isConnected: this.isConnected,
+      isLoggedIn: this.isLoggedIn,
+      isWaitingForLoginPrompt: this.isWaitingForLoginPrompt,
+      currentCommand: this.currentCommand,
+      reconnectAttempts: this.reconnectAttempts,
+      bufferLength: this.receiveBuffer.length,
+      userListSize: this.userList.size,
+      lastMessages: [...this.lastMessages],
+      stats: { ...this.diagnosticStats }
+    };
+  }
+
+  /**
+   * Append a message to the recent messages ring buffer
+   */
+  private addToRecentMessage(logLine: string): void {
+    this.lastMessages.push(logLine);
+    if (this.lastMessages.length > 20) {
+      this.lastMessages.shift();
+    }
   }
 }
 
