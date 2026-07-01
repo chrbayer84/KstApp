@@ -52,11 +52,14 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     @Published var myGridSquare: String = ""
     
     enum NotificationFilter: String, CaseIterable {
-        case all = "All Messages"
-        case myCallsign = "My Callsign Only"
-        
+        case all = "all"
+        case myCallsign = "myCallsign"
+
         var displayName: String {
-            return self.rawValue
+            switch self {
+            case .all: return "All Messages"
+            case .myCallsign: return "My Callsign Only"
+            }
         }
     }
     
