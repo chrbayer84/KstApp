@@ -54,7 +54,7 @@ struct ChatHighlightRulesView: View {
 
                         // Pushover User Key (only show if using Pushover or if we want to always show it)
                         // For simplicity, we'll always show it but note it's only used for Pushover
-                        SecureField("Pushover User Key", text: Binding(
+                        SecureField("", text: Binding(
                             get: {
                                 UserDefaults.standard.string(forKey: "KSTPushoverUserKey") ?? ""
                             },
@@ -65,7 +65,7 @@ struct ChatHighlightRulesView: View {
                             }
                         ))
                         .placeholder(when: (UserDefaults.standard.string(forKey: "KSTPushoverUserKey") ?? "").isEmpty) {
-                            Text("Enter your Pushover User Key").foregroundColor(.gray)
+                            Text("Pushover User Key").foregroundColor(.gray)
                         }
                     }
                 }

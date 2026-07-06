@@ -12,9 +12,13 @@ const log = createLogger('kst:notifications');
  */
 class NotificationService {
   private connections: Map<string, On4kstConnectionManager> = new Map();
+  private connectionGeneration: Map<string, number> = new Map();
   private apnsService: ApnsService | null = null;
   private pushoverService: PushoverService | null = null;
   private pushoverDeepLinkUrl: string | undefined;
+  // Deduplication at the singleton level (covers overlapping connections from re-registration)
+  private recentMessageIds: Set<string> = new Set();
+  private maxRecentMessages = 200;
 
   constructor() {
     // Initialize APNs service if credentials are available
@@ -72,38 +76,59 @@ class NotificationService {
   async startUserNotifications(settings: UserSettings): Promise<void> {
     log.info(`[NOTIFY] Starting notifications for ${settings.username} | filter=${settings.notificationFilter} | pref=${settings.notificationService || 'none'} | pushoverKey=${!settings.pushoverUserKey ? 'missing' : settings.pushoverUserKey.slice(-4)} | deviceToken=${!!settings.deviceToken}`);
 
-    // Stop any existing connection for this user
-    await this.stopUserNotifications(settings.username);
-
     // Only create connection if notifications are enabled
     if (!settings.notificationsEnabled) {
       log.debug(`[NOTIFY] Notifications disabled for ${settings.username}, no connection created.`);
+      // Still stop any existing connection
+      await this.stopUserNotifications(settings.username);
       return;
     }
 
+    // Increment generation for this user - old connections will be ignored
+    const currentGen = (this.connectionGeneration.get(settings.username) ?? 0) + 1;
+    this.connectionGeneration.set(settings.username, currentGen);
+
+    // Stop any existing connection for this user
+    await this.stopUserNotifications(settings.username);
+
+    const username = settings.username;
+
     // Create new connection manager
-    const connection = new On4kstConnectionManager(settings.username);
+    const connection = new On4kstConnectionManager(username);
     connection.setSettings(settings);
 
-    // Set up callbacks
+    // Set up callbacks with generation check
     connection.setOnMessageReceived((message) => {
-      this.handleIncomingMessage(settings.username, message);
+      // Only process messages if this is still the current generation
+      if (this.connectionGeneration.get(username) === currentGen) {
+        this.handleIncomingMessage(username, message);
+      } else {
+        log.debug(`[${username}] Ignoring message from stale connection (gen ${currentGen})`);
+      }
     });
 
     connection.setOnConnectionStatusChange((isConnected) => {
-      log.info(`[${settings.username}] Connection status: ${isConnected ? 'Connected' : 'Disconnected'}`);
+      // Only log if this is still the current generation
+      if (this.connectionGeneration.get(username) === currentGen) {
+        log.info(`[${username}] Connection status: ${isConnected ? 'Connected' : 'Disconnected'}`);
+      }
     });
 
     connection.setOnError((error) => {
-      log.error(`[${settings.username}] Connection error:`, error);
-      // Attempt to restart connection after error
-      setTimeout(() => {
-        this.startUserNotifications(settings).catch(console.error);
-      }, 10000); // Try again after 10 seconds
+      // Only handle errors if this is still the current generation
+      if (this.connectionGeneration.get(username) === currentGen) {
+        log.error(`[${username}] Connection error:`, error);
+        // Attempt to restart connection after error
+        setTimeout(() => {
+          this.startUserNotifications(settings).catch(console.error);
+        }, 10000); // Try again after 10 seconds
+      } else {
+        log.debug(`[${username}] Ignoring error from stale connection (gen ${currentGen})`);
+      }
     });
 
     // Store the connection
-    this.connections.set(settings.username, connection);
+    this.connections.set(username, connection);
 
     // Connect to ON4KST
     await connection.connect();
@@ -127,18 +152,18 @@ class NotificationService {
   /**
    * Handle an incoming message from ON4KST
    */
-  private async handleIncomingMessage(username: string, message: any): Promise<void> {
+  private async handleIncomingMessage(username: string, message: any): Promise<{ notified: boolean; reason?: string } | void> {
     log.debug(`[NOTIFY] handleIncomingMessage for ${username} | sender=${message.sender} | msg=${JSON.stringify(message.message).substring(0, 100)}`);
 
     // Get user settings
     const settings = await UserSettingsService.getSettings(username);
     if (!settings) {
       log.warn(`[NOTIFY] No settings found for ${username} — skipping notification. Registered users: [${UserSettingsService.getAllUsernames().join(', ')}]`);
-      return;
+      return { notified: false, reason: 'no_settings' };
     }
     if (!settings.notificationsEnabled) {
       log.debug(`[NOTIFY] Notifications disabled for ${username} — skipping message.`);
-      return; // Notifications disabled for this user
+      return { notified: false, reason: 'notifications_disabled' };
     }
 
     log.debug(`[NOTIFY] Settings for ${username}: filter=${settings.notificationFilter} | service=${settings.notificationService || 'none'} | pushoverKey=${settings.pushoverUserKey?.slice(-4) || 'N/A'} | deviceToken=${!!settings.deviceToken}`);
@@ -150,22 +175,36 @@ class NotificationService {
       shouldNotify = true;
       log.debug(`[NOTIFY] Filter='all' → will notify for message from ${message.sender}.`);
     } else if (settings.notificationFilter === 'myCallsign') {
-      // Check if message contains user's callsign in parentheses (case-insensitive)
-      const pattern = new RegExp(`\\(${settings.username.toUpperCase()}\\)`, 'i');
+      // Check if message contains user's callsign (case-insensitive)
+      const pattern = new RegExp(settings.username.toUpperCase(), 'i');
       shouldNotify = pattern.test(message.message);
-      log.debug(`[NOTIFY] Filter='myCallsign' looking for pattern "\\(${username.toUpperCase()}\\)" in "${message.message}": ${shouldNotify ? 'MATCH' : 'NO MATCH'}`);
+      log.debug(`[NOTIFY] Filter='myCallsign' looking for "${username.toUpperCase()}" in "${message.message}": ${shouldNotify ? 'MATCH' : 'NO MATCH'}`);
     } else {
       log.warn(`[NOTIFY] Unknown filter "${settings.notificationFilter}" for ${username} — skipping notification.`);
+      return { notified: false, reason: 'unknown_filter' };
     }
 
     if (!shouldNotify) {
       log.debug(`[NOTIFY] Filter rejected message from ${message.sender} — no push notification will be sent.`);
-      return; // Message doesn't match filter
+      return { notified: false, reason: 'filter_rejected' };
+    }
+
+    // Deduplication at NotificationService level (handles overlapping connections/re-registration)
+    const dedupId = `${message.time}|${message.sender}|${message.message}`;
+    if (this.recentMessageIds.has(dedupId)) {
+      log.debug(`[NOTIFY] Duplicate message suppressed by NotificationService: ${dedupId.substring(0, 80)}...`);
+      return { notified: false, reason: 'duplicate' };
+    }
+    this.recentMessageIds.add(dedupId);
+    if (this.recentMessageIds.size > this.maxRecentMessages) {
+      const first = this.recentMessageIds.values().next().value;
+      if (first) { this.recentMessageIds.delete(first); }
     }
 
     log.info(`[NOTIFY] Message from ${message.sender} matches filter for ${username} — sending push notification.`);
     // Send push notification
     await this.sendPushNotification(settings, message);
+    // Return undefined on success (notification sent)
   }
   
   /**

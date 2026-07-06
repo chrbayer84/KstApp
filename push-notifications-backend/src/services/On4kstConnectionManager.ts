@@ -10,7 +10,6 @@ interface ChatMessage {
   time: string;     // HHMM format (UTC)
   sender: string;   // Callsign
   message: string;  // Message text
-  grid?: string;    // Grid square (from user list)
 }
 
 interface CommandResponse {
@@ -19,13 +18,12 @@ interface CommandResponse {
   error?: string;
 }
 
-// Command types that we send to the ON4 send to the ON4KST server
+// Command types that we send to the ON4KST server
 enum Command {
   LOGIN = 'login',
   PASSWORD = 'password',
   ROOM = 'room',
   SET_GRID = 'set_grid',
-  SHOW_USERS = 'show_users',
   SHOW_MESSAGES = 'show_messages',
   USER = 'user',
   NONE = 'none'
@@ -45,15 +43,15 @@ class On4kstConnectionManager {
   private isConnected: boolean = false;
   private isLoggedIn: boolean = false;
   private isWaitingForLoginPrompt: boolean = false;
-  private updateUsersTimer: NodeJS.Timeout | null = null;
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
   private reconnectDelay: number = 5000; // Start with 5 seconds
   private shouldReconnect: boolean = true; // Set to false on auth errors
-  
-  // For storing user list (callsign -> grid mapping)
-  private userList: Map<string, { grid: string; name: string }> = new Map();
-  
+
+  // Message deduplication - prevent duplicate notifications
+  private recentMessageIds: Set<string> = new Set();
+  private maxRecentMessages = 100;
+
   // Callbacks
   private onMessageReceived: ((message: ChatMessage) => void) | null = null;
   private onConnectionStatusChange: ((isConnected: boolean) => void) | null = null;
@@ -69,7 +67,6 @@ class On4kstConnectionManager {
     linesReceived: 0,
     chatMessagesDetected: 0,
     commandCompletions: 0,
-    userListLines: 0,
     unrecognizedLines: 0,
     lastActivityAt: ''
   };
@@ -154,12 +151,6 @@ class On4kstConnectionManager {
           this.onConnectionStatusChange(false);
         }
 
-        // Clear timers
-        if (this.updateUsersTimer) {
-          clearInterval(this.updateUsersTimer);
-          this.updateUsersTimer = null;
-        }
-
         // Try to reconnect only if we should
         if (this.shouldReconnect) {
           this.attemptReconnect(reject);
@@ -183,13 +174,7 @@ class On4kstConnectionManager {
       this.connection.destroy();
       this.connection = null;
     }
-    
-    // Clear timers
-    if (this.updateUsersTimer) {
-      clearInterval(this.updateUsersTimer);
-      this.updateUsersTimer = null;
-    }
-    
+
     this.isConnected = false;
     this.isWaitingForLoginPrompt = false;
     this.currentCommand = Command.NONE;
@@ -378,8 +363,7 @@ class On4kstConnectionManager {
       this.writeToSocket(roomChoice.toString());
       this.isLoggedIn = true;
       this.reconnectAttempts = 0;
-      this.startUserListUpdates();
-      log.info('Login sequence complete, started user list updates');
+      log.info('Login sequence complete');
       return;
     }
 
@@ -418,14 +402,6 @@ class On4kstConnectionManager {
       return;
     }
 
-    // Check if this looks like user list data
-    if (this.isUserListData(line)) {
-      log.debug(`[CLASSIFY] detected as user list data: "${line.substring(0,100)}"`);
-      this.diagnosticStats.userListLines++;
-      this.processUserListLine(line);
-      return;
-    }
-    
     // If we're expecting a command response, add to buffer
     if (this.currentCommand !== Command.NONE) {
       log.debug(`[CLASSIFY] buffering for command ${this.currentCommand}: "${line.substring(0,100)}"`);
@@ -433,9 +409,29 @@ class On4kstConnectionManager {
       return;
     }
 
-    // Unrecognized line
+    // Ignore common server messages (room menu, welcome, info)
+    if (line.trim() === '' ||
+        line.startsWith('Chat selection') ||
+        line.includes('MHz') ||
+        line.startsWith('Microwave') ||
+        line.startsWith('EME/') ||
+        line.startsWith('Low Band') ||
+        line.startsWith('kHz (') ||
+        line.startsWith('Warc (') ||
+        line.startsWith('Welcome ') ||
+        line.startsWith('Use the inline ON4KST') ||
+        line.startsWith('More info type') ||
+        line.match(/^\d+ MHz/) ||
+        line.match(/^\d{3,4} MHz/) ||
+        line.match(/IARU/) ||
+        line.match(/\.{3,}\d+$/)) {
+      log.debug(`[CLASSIFY] Ignoring expected server message: "${line.substring(0, 80)}..."`);
+      return;
+    }
+
+    // Unrecognized line - log at debug level since most are harmless
     this.diagnosticStats.unrecognizedLines++;
-    log.warn(`[CLASSIFY] Unrecognized line: "${line}"`);
+    log.debug(`[CLASSIFY] Unrecognized line: "${line}"`);
   }
 
   /**
@@ -511,16 +507,9 @@ class On4kstConnectionManager {
         }
         break;
 
-      case Command.SHOW_USERS:
-        // Process user list
-        this.processUserListBuffer(this.commandLineBuffer);
-        // Don't add user list to chat messages
-        break;
-
       case Command.SHOW_MESSAGES:
-        // Process message history (we don't notify on history)
-        this.processMessageHistoryBuffer(this.commandLineBuffer);
-        // Don't add message history to chat messages
+        // Message history received - we don't notify on history, just consume it
+        log.info(`Processed ${this.commandLineBuffer.length} lines of message history`);
         break;
 
       case Command.USER:
@@ -584,6 +573,24 @@ class On4kstConnectionManager {
       message: message.startsWith(' ') ? message.substring(1) : message, // Remove leading space if present
     };
 
+    // Deduplication: generate a unique ID for this message
+    const messageId = `${time}|${chatMessage.sender}|${chatMessage.message}`;
+    log.debug(`[CHAT] DEDUP CHECK: id="${messageId.substring(0, 60)}..." cacheSize=${this.recentMessageIds.size} has=${this.recentMessageIds.has(messageId)}`);
+    if (this.recentMessageIds.has(messageId)) {
+      log.info(`[CHAT] Duplicate message ignored: ${messageId.substring(0, 80)}...`);
+      return;
+    }
+
+    // Add to recent messages and trim if needed
+    this.recentMessageIds.add(messageId);
+    log.debug(`[CHAT] Added to dedup cache. New size: ${this.recentMessageIds.size}`);
+    if (this.recentMessageIds.size > this.maxRecentMessages) {
+      const first = this.recentMessageIds.values().next().value;
+      if (first) {
+        this.recentMessageIds.delete(first);
+      }
+    }
+
     // Notify listeners
     if (this.onMessageReceived) {
       log.debug(`[CHAT] Delivering to listener: ${JSON.stringify(chatMessage)}`);
@@ -591,76 +598,6 @@ class On4kstConnectionManager {
     } else {
       log.warn('[CHAT] No message received callback registered!');
     }
-  }
-
-  /**
-   * Check if a line looks like user list data
-   */
-  private isUserListData(line: string): boolean {
-    // Pattern: CALLSIGN GRID COMMENT
-    // Example: ON1ABC JO21xx Some comment here
-    const pattern = /^(\S{3,})\s{1,}(\S+)\s(.*)$/;
-    return pattern.test(line);
-  }
-
-  /**
-   * Process a user list line
-   */
-  private processUserListLine(line: string): void {
-    const match = line.match(/^(\S{3,})\s{1,}(\S+)\s(.*)$/);
-    if (!match) {
-      return;
-    }
-    
-    const [, callsign, grid, comment] = match;
-    
-    // Store in our user list map
-    this.userList.set(callsign.toUpperCase(), {
-      grid: grid,
-      name: comment.trim()
-    });
-  }
-
-  /**
-   * Process the user list buffer (from SHOW_USERS command)
-   */
-  private processUserListBuffer(buffer: string[]): void {
-    // Clear existing user list
-    this.userList.clear();
-    
-    // Process each line
-    for (const line of buffer) {
-      this.processUserListLine(line);
-    }
-    
-    log.info(`Updated user list: ${this.userList.size} users`);
-  }
-
-  /**
-   * Process message history buffer (from SHOW_MESSAGES command)
-   */
-  private processMessageHistoryBuffer(buffer: string[]): void {
-    // We don't store or process message history for notifications
-    // Just consume it to keep the connection clean
-    log.info(`Processed ${buffer.length} lines of message history`);
-  }
-
-  /**
-   * Start periodic user list updates
-   */
-  private startUserListUpdates(): void {
-    // Clear any existing timer
-    if (this.updateUsersTimer) {
-      clearInterval(this.updateUsersTimer);
-    }
-    
-    // Request user list every 3 minutes (as per the iOS app)
-    this.updateUsersTimer = setInterval(() => {
-      this.sendCommand(Command.SHOW_USERS, '/sh us');
-    }, 3 * 60 * 1000); // 3 minutes in milliseconds
-    
-    // Also send immediately to get initial user list
-    this.sendCommand(Command.SHOW_USERS, '/sh us');
   }
 
   /**
@@ -700,21 +637,6 @@ class On4kstConnectionManager {
   }
 
   /**
-   * Get grid square for a callsign from our user list
-   */
-  getGridForCallsign(callsign: string): string | undefined {
-    const userInfo = this.userList.get(callsign.toUpperCase());
-    return userInfo?.grid;
-  }
-
-  /**
-   * Get callsign info (grid and name) from our user list
-   */
-  getUserInfo(callsign: string): { grid: string; name: string } | undefined {
-    return this.userList.get(callsign.toUpperCase());
-  }
-
-  /**
    * Check if we're currently connected
    */
   isConnectedStatus(): boolean {
@@ -733,7 +655,6 @@ class On4kstConnectionManager {
       currentCommand: this.currentCommand,
       reconnectAttempts: this.reconnectAttempts,
       bufferLength: this.receiveBuffer.length,
-      userListSize: this.userList.size,
       lastMessages: [...this.lastMessages],
       stats: { ...this.diagnosticStats }
     };

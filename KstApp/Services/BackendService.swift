@@ -18,14 +18,14 @@ class BackendService {
 
     private init() {
         // Get backend URL from UserDefaults or use default
-        let backendURLString = UserDefaults.standard.string(forKey: "BackendURL") ?? "https://your-backend.example.com"
+        let backendURLString = UserDefaults.standard.string(forKey: "KSTBackendURL") ?? "https://your-backend.example.com"
         self.baseURL = URL(string: backendURLString)!
     }
 
     // MARK: - Public Methods
 
     func updateBackendURL(_ urlString: String) {
-        UserDefaults.standard.set(urlString, forKey: "BackendURL")
+        UserDefaults.standard.set(urlString, forKey: "KSTBackendURL")
         // Note: In a production app, you might want to handle URL validation here
     }
 
