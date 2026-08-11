@@ -22,8 +22,8 @@ interface CommandResponse {
 enum Command {
   LOGIN = 'login',
   PASSWORD = 'password',
-  ROOM = 'room',
   SET_GRID = 'set_grid',
+  SHOW_USERS = 'show_users',
   SHOW_MESSAGES = 'show_messages',
   USER = 'user',
   NONE = 'none'
@@ -44,9 +44,15 @@ class On4kstConnectionManager {
   private isLoggedIn: boolean = false;
   private isWaitingForLoginPrompt: boolean = false;
   private reconnectAttempts: number = 0;
-  private maxReconnectAttempts: number = 5;
-  private reconnectDelay: number = 5000; // Start with 5 seconds
+  private baseReconnectDelay: number = 5000; // Start with 5 seconds
+  private maxReconnectDelay: number = 30000; // Cap at 30 seconds
   private shouldReconnect: boolean = true; // Set to false on auth errors
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private livenessTimer: NodeJS.Timeout | null = null;
+  private lastDataTimestamp: number = 0;
+  private livenessCheckIntervalMs: number = 30000; // Check every 30 seconds
+  private livenessTimeoutMs: number = 90000; // Declare dead after 90 seconds of no data
+  private initialConnectResolve: ((value: void | PromiseLike<void>) => void) | null = null;
 
   // Message deduplication - prevent duplicate notifications
   private recentMessageIds: Set<string> = new Set();
@@ -104,12 +110,18 @@ class On4kstConnectionManager {
    */
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Close any existing connection
-      this.disconnect();
+      // Close any existing connection and clean timers
+      this.cleanupSocketAndTimers();
+
+      // Store resolver for use by reconnection logic
+      // On first connect, this resolve is the user-facing promise.
+      // On reconnects initiated by attemptReconnect(), this is a no-op stub
+      // since the original promise was already resolved.
+      this.initialConnectResolve = resolve;
 
       // Create new connection
       this.connection = new net.Socket();
-      
+
       this.connection.on('connect', () => {
         log.info('TCP socket connected to ON4KST server');
         this.isConnected = true;
@@ -118,26 +130,38 @@ class On4kstConnectionManager {
         this.currentCommand = Command.NONE;
         this.commandLineBuffer = [];
         this.receiveBuffer = '';
+        this.lastDataTimestamp = Date.now();
+
+        // Start liveness monitoring
+        this.startLivenessMonitor();
 
         // Notify connection status change
         if (this.onConnectionStatusChange) {
           this.onConnectionStatusChange(true);
         }
 
-        resolve();
+        // Resolve the original connect() promise only on initial connect
+        if (this.initialConnectResolve) {
+          this.initialConnectResolve();
+          this.initialConnectResolve = null;
+        }
       });
 
       this.connection.on('data', (data: Buffer) => {
+        this.lastDataTimestamp = Date.now(); // Reset liveness timer on any data
         this.processReceivedData(data.toString('utf8'));
       });
 
       this.connection.on('error', (error: Error) => {
         log.error(`Connection error: ${error.message}`);
+        this.isConnected = false;
+        this.isLoggedIn = false;
         this.handleError(error);
 
-        // Try to reconnect only if we should
+        // Trigger reconnection — never reject the original promise;
+        // the error is just an event we react to.
         if (this.shouldReconnect) {
-          this.attemptReconnect(reject);
+          this.attemptReconnect();
         }
       });
 
@@ -146,6 +170,9 @@ class On4kstConnectionManager {
         this.isConnected = false;
         this.isLoggedIn = false;
 
+        // Stop liveness monitor
+        this.stopLivenessMonitor();
+
         // Notify connection status change
         if (this.onConnectionStatusChange) {
           this.onConnectionStatusChange(false);
@@ -153,7 +180,7 @@ class On4kstConnectionManager {
 
         // Try to reconnect only if we should
         if (this.shouldReconnect) {
-          this.attemptReconnect(reject);
+          this.attemptReconnect();
         } else {
           log.info('Reconnection skipped: auth error or manual disconnect');
         }
@@ -167,15 +194,28 @@ class On4kstConnectionManager {
   }
 
   /**
-   * Disconnect from the ON4KST server
+   * Disconnect from the ON4KST server — permanent, no reconnect
    */
   disconnect(): void {
+    this.shouldReconnect = false; // Prevent auto-reconnect
+    this.stopLivenessMonitor();
+    this.clearReconnectTimer();
+    this.cleanupSocketAndTimers();
+    log.info(`Permanent disconnect for ${this.username}`);
+  }
+
+  /**
+   * Clean up socket and all timers (used by both disconnect and before re-connect)
+   */
+  private cleanupSocketAndTimers(): void {
     if (this.connection) {
+      this.connection.removeAllListeners();
       this.connection.destroy();
       this.connection = null;
     }
 
     this.isConnected = false;
+    this.isLoggedIn = false;
     this.isWaitingForLoginPrompt = false;
     this.currentCommand = Command.NONE;
     this.commandQueue = [];
@@ -435,12 +475,13 @@ class On4kstConnectionManager {
   }
 
   /**
-   * Check if we're waiting for a response to a command we sent
+   * Check if we're waiting for a response to a command we sent.
+   * For ROOM commands, the prompt may still show the old room name,
+   * so we match against any room name.
    */
   private isWaitingForResponse(line: string): boolean {
-    // Pattern for command completion: HHMMZ <OUR_USERNAME> <ROOM_NAME> chat>...
-    const roomName = this.getRoomName();
-    const pattern = new RegExp(`^([0-9]{4})Z ${this.username} ${roomName} chat>.*$`);
+    // Match common pattern: HHMMZ <OUR_USERNAME> ... chat>...
+    const pattern = new RegExp(`^([0-9]{4})Z ${this.username} .* chat>.*$`);
     return pattern.test(line);
   }
 
@@ -489,12 +530,9 @@ class On4kstConnectionManager {
     // Process based on the command we were waiting for
     switch (this.currentCommand) {
       case Command.LOGIN:
-      case Command.ROOM:
-        // Login/room selection completed successfully
+        // Login completed successfully
         this.isConnected = true;
         this.reconnectAttempts = 0; // Reset reconnect counter on success
-
-        // Add login completion message to chat if there's content
         if (messageContent.trim()) {
           this.addToChatMessageBuffer(messageContent);
         }
@@ -612,28 +650,109 @@ class On4kstConnectionManager {
   }
 
   /**
-   * Attempt to reconnect with exponential backoff
+   * Attempt to reconnect with exponential backoff.
+   * 5s → 10s → 15s → 20s → 25s → 30s (forever).
+   * Reconnect attempts reset to 0 on successful login.
    */
-  private attemptReconnect(reject: (reason?: any) => void): void {
-    // Don't reconnect if we're already trying to connect or if we've maxed out attempts
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      log.error('Max reconnect attempts reached. Giving up.');
-      if (this.onError) {
-        this.onError(new Error('Max reconnect attempts reached'));
-      }
-      reject(new Error('Max reconnect attempts reached'));
+  private attemptReconnect(): void {
+    // Clear any existing reconnect timer to prevent duplicates
+    this.clearReconnectTimer();
+
+    // Calculate delay with exponential backoff, capped at maxReconnectDelay
+    const delay = Math.min(
+      this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts),
+      this.maxReconnectDelay
+    );
+
+    log.info(`Scheduling reconnect in ${delay}ms (attempt ${this.reconnectAttempts + 1})`);
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.reconnectAttempts++;
+      log.info(`Executing reconnect attempt ${this.reconnectAttempts}`);
+
+      this.connect().catch((err) => {
+        log.error(`Reconnection attempt failed: ${err.message}`);
+        // Schedule another reconnect — retry forever
+        this.attemptReconnect();
+      });
+    }, delay);
+  }
+
+  /**
+   * Clear reconnect timer without clearing shouldReconnect flag
+   */
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  // ─── Liveness Detection ───────────────────────────────────────
+
+  /**
+   * Start periodic liveness checks.
+   * If no data is received for livenessTimeoutMs (90s), the connection
+   * is declared dead and reconnection is triggered.
+   */
+  private startLivenessMonitor(): void {
+    this.stopLivenessMonitor();
+    this.lastDataTimestamp = Date.now();
+
+    this.livenessTimer = setInterval(() => {
+      this.checkLiveness();
+    }, this.livenessCheckIntervalMs);
+
+    log.debug(`Liveness monitor started: check every ${this.livenessCheckIntervalMs}ms, timeout ${this.livenessTimeoutMs}ms`);
+  }
+
+  /**
+   * Stop liveness monitoring
+   */
+  private stopLivenessMonitor(): void {
+    if (this.livenessTimer) {
+      clearInterval(this.livenessTimer);
+      this.livenessTimer = null;
+    }
+  }
+
+  /**
+   * Check if connection is still alive.
+   * Called periodically by the liveness timer.
+   */
+  private checkLiveness(): void {
+    if (!this.isConnected) {
+      log.debug('Liveness check skipped: not connected');
       return;
     }
 
-    // Calculate delay with exponential backoff
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts);
-    this.reconnectAttempts++;
+    const msSinceLastData = Date.now() - this.lastDataTimestamp;
+    if (msSinceLastData > this.livenessTimeoutMs) {
+      log.warn(`Connection declared DEAD: no data for ${msSinceLastData}ms (threshold: ${this.livenessTimeoutMs}ms). Forcing reconnect.`);
 
-    log.info(`Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-    
-    setTimeout(() => {
-      this.connect().catch(reject);
-    }, delay);
+      // Mark as disconnected and force reconnect
+      this.isConnected = false;
+      this.isLoggedIn = false;
+      this.stopLivenessMonitor();
+
+      // Kill the stale socket
+      if (this.connection) {
+        this.connection.removeAllListeners();
+        this.connection.destroy();
+        this.connection = null;
+      }
+
+      // Notify status change
+      if (this.onConnectionStatusChange) {
+        this.onConnectionStatusChange(false);
+      }
+
+      // Trigger reconnection (does not reset exponential backoff counter)
+      this.attemptReconnect();
+    } else {
+      log.debug(`Liveness OK: last data ${msSinceLastData}ms ago`);
+    }
   }
 
   /**
@@ -647,14 +766,27 @@ class On4kstConnectionManager {
    * Get diagnostic information about this connection
    */
   getDebugState(): any {
+    const msSinceLastData = this.lastDataTimestamp ? Date.now() - this.lastDataTimestamp : 0;
     return {
       username: this.username,
       isConnected: this.isConnected,
       isLoggedIn: this.isLoggedIn,
       isWaitingForLoginPrompt: this.isWaitingForLoginPrompt,
       currentCommand: this.currentCommand,
+      currentRoom: this.getRoomName(),
       reconnectAttempts: this.reconnectAttempts,
+      reconnectDelay: Math.min(
+        this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts),
+        this.maxReconnectDelay
+      ),
       bufferLength: this.receiveBuffer.length,
+      shouldReconnect: this.shouldReconnect,
+      liveness: {
+        msSinceLastData,
+        thresholdMs: this.livenessTimeoutMs,
+        alive: msSinceLastData < this.livenessTimeoutMs,
+        monitorRunning: this.livenessTimer !== null
+      },
       lastMessages: [...this.lastMessages],
       stats: { ...this.diagnosticStats }
     };

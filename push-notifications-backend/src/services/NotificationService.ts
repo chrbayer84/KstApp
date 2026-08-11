@@ -12,7 +12,6 @@ const log = createLogger('kst:notifications');
  */
 class NotificationService {
   private connections: Map<string, On4kstConnectionManager> = new Map();
-  private connectionGeneration: Map<string, number> = new Map();
   private apnsService: ApnsService | null = null;
   private pushoverService: PushoverService | null = null;
   private pushoverDeepLinkUrl: string | undefined;
@@ -71,60 +70,53 @@ class NotificationService {
   // ... rest of the class remains the same for now
   
   /**
-   * Start handling notifications for a user
+   * Start handling notifications for a user.
+   * If a connection already exists for this user with the same room,
+   * it's idempotent (just updates settings). If a new room is requested,
+   * the old connection is closed and a fresh one created to the new room.
    */
   async startUserNotifications(settings: UserSettings): Promise<void> {
-    log.info(`[NOTIFY] Starting notifications for ${settings.username} | filter=${settings.notificationFilter} | pref=${settings.notificationService || 'none'} | pushoverKey=${!settings.pushoverUserKey ? 'missing' : settings.pushoverUserKey.slice(-4)} | deviceToken=${!!settings.deviceToken}`);
+    log.info(`[NOTIFY] Starting notifications for ${settings.username} | filter=${settings.notificationFilter} | pref=${settings.notificationService || 'none'} | pushoverKey=${!settings.pushoverUserKey ? 'missing' : settings.pushoverUserKey.slice(-4)} | deviceToken=${!!settings.deviceToken} | room=${settings.on4kstRoom ?? 0}`);
 
-    // Only create connection if notifications are enabled
+    const username = settings.username;
+
+    // If notifications are disabled, close any existing connection and exit
     if (!settings.notificationsEnabled) {
-      log.debug(`[NOTIFY] Notifications disabled for ${settings.username}, no connection created.`);
-      // Still stop any existing connection
-      await this.stopUserNotifications(settings.username);
+      log.debug(`[NOTIFY] Notifications disabled for ${username}, closing connection if any.`);
+      await this.stopUserNotifications(username);
       return;
     }
 
-    // Increment generation for this user - old connections will be ignored
-    const currentGen = (this.connectionGeneration.get(settings.username) ?? 0) + 1;
-    this.connectionGeneration.set(settings.username, currentGen);
+    // Check if we already have an active connection for this user.
+    // Since ON4KST doesn't support room switching on an existing session,
+    // a new room always requires a fresh connection. The old connection
+    // will be cleaned up below via stopUserNotifications.
+    const existingConnection = this.connections.get(username);
+    const hasExisting = existingConnection && existingConnection.isConnectedStatus();
+    if (hasExisting) {
+      log.info(`[NOTIFY] ${username} has an existing connection — closing to refresh.`);
+    }
 
-    // Stop any existing connection for this user
-    await this.stopUserNotifications(settings.username);
-
-    const username = settings.username;
+    // Clean up any stale references
+    await this.stopUserNotifications(username);
 
     // Create new connection manager
     const connection = new On4kstConnectionManager(username);
     connection.setSettings(settings);
 
-    // Set up callbacks with generation check
+    // Set up callbacks
     connection.setOnMessageReceived((message) => {
-      // Only process messages if this is still the current generation
-      if (this.connectionGeneration.get(username) === currentGen) {
-        this.handleIncomingMessage(username, message);
-      } else {
-        log.debug(`[${username}] Ignoring message from stale connection (gen ${currentGen})`);
-      }
+      this.handleIncomingMessage(username, message);
     });
 
     connection.setOnConnectionStatusChange((isConnected) => {
-      // Only log if this is still the current generation
-      if (this.connectionGeneration.get(username) === currentGen) {
-        log.info(`[${username}] Connection status: ${isConnected ? 'Connected' : 'Disconnected'}`);
-      }
+      log.info(`[${username}] Connection status: ${isConnected ? 'Connected' : 'Disconnected'}`);
     });
 
     connection.setOnError((error) => {
-      // Only handle errors if this is still the current generation
-      if (this.connectionGeneration.get(username) === currentGen) {
-        log.error(`[${username}] Connection error:`, error);
-        // Attempt to restart connection after error
-        setTimeout(() => {
-          this.startUserNotifications(settings).catch(console.error);
-        }, 10000); // Try again after 10 seconds
-      } else {
-        log.debug(`[${username}] Ignoring error from stale connection (gen ${currentGen})`);
-      }
+      log.error(`[${username}] Connection error:`, error);
+      // Reconnection is handled internally by On4kstConnectionManager
+      // with exponential backoff capped at 30s — no external action needed
     });
 
     // Store the connection
@@ -132,6 +124,20 @@ class NotificationService {
 
     // Connect to ON4KST
     await connection.connect();
+  }
+
+  /**
+   * Utility: get room name string for a 0-indexed room number
+   */
+  private getRoomName(index: number): string {
+    const rooms = [
+      "50/70 MHz", "144/432 MHz", "Microwave", "EME/JT65",
+      "Low Band (160-80m)", "50 MHz IARU Region 3", "50 MHz IARU Region 2",
+      "144/432 MHz IARU R 2", "144/432 MHz IARU R 3", "kHz (2000-630m)",
+      "Warc (30,17,12m)", "28 MHz", "40 MHz"
+    ];
+    const safe = Math.max(0, Math.min(index, rooms.length - 1));
+    return rooms[safe];
   }
   
   /**
