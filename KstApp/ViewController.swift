@@ -3,9 +3,26 @@ import SwiftUI
 
 class ViewController: UIViewController {
 
+    private var tabBarControllerInstance: UITabBarController?
+
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
+        
+        NotificationCenter.default.addObserver(self, selector: #selector(handleDeepLinkNotification(_:)), name: NSNotification.Name("HandleDeepLink"), object: nil)
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+    
+    @objc private func handleDeepLinkNotification(_ notification: Notification) {
+        guard let url = notification.userInfo?["url"] as? URL else { return }
+        
+        // Example: kstapp://chat
+        if url.host == "chat" {
+            tabBarControllerInstance?.selectedIndex = 0
+        }
     }
     
     private func setupUI() {
@@ -13,6 +30,7 @@ class ViewController: UIViewController {
         
         // Create a tab bar controller for navigation
         let tabBarController = UITabBarController()
+        self.tabBarControllerInstance = tabBarController
         
         // KST Chat view
         let chatVC = createKSTChatViewController()
