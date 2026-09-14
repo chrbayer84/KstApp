@@ -50,7 +50,7 @@ class ViewController: UIViewController {
         // Set up constraints
         tabBarController.view.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            tabBarController.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            tabBarController.view.topAnchor.constraint(equalTo: view.topAnchor),
             tabBarController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tabBarController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tabBarController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)

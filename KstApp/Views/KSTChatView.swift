@@ -89,31 +89,29 @@ struct KSTChatView: View {
     
     var body: some View {
         GeometryReader { geometry in
-            NavigationStack {
-                VStack(spacing: 0) {
-                    // Header with room info and connection status
-                    headerView
+            VStack(spacing: 0) {
+                // Header with room info and connection status
+                headerView
+                
+                // Main chat area
+                HStack(spacing: 0) {
+                    // Chat messages
+                    chatMessagesView
+                        .frame(maxWidth: .infinity)
                     
-                    // Main chat area
-                    HStack(spacing: 0) {
-                        // Chat messages
-                        chatMessagesView
-                            .frame(maxWidth: .infinity)
-                        
-                        // Users list
-                        usersListView
-                            .frame(width: isLandscape ? 220 : 180)
-                            .background(Color(.systemGray6))
-                    }
-                    .simultaneousGesture(
-                        TapGesture().onEnded {
-                            isInputActive = false
-                        }
-                    )
-                    
-                    // Message input
-                    messageInputView
+                    // Users list
+                    usersListView
+                        .frame(width: isLandscape ? 220 : 180)
+                        .background(Color(.systemGray6))
                 }
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        isInputActive = false
+                    }
+                )
+                
+                // Message input
+                messageInputView
             }
             .sheet(isPresented: $showingLogin) {
                 loginView
