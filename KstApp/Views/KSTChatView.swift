@@ -420,16 +420,6 @@ struct KSTChatView: View {
                 TextField("Type a message...", text: $messageText)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .focused($isInputActive)
-                    .toolbar {
-                        ToolbarItemGroup(placement: .keyboard) {
-                            Spacer()
-                            Button {
-                                isInputActive = false
-                            } label: {
-                                Image(systemName: "keyboard.chevron.compact.down")
-                            }
-                        }
-                    }
                     .onSubmit {
                         sendMessage()
                     }
