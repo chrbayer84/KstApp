@@ -14,7 +14,7 @@ struct KSTChatView: View {
     @State private var sortAscending: Bool = true
     @State private var gridSquare: String = ""
     @State private var isLandscape: Bool = false
-    
+    @FocusState private var isInputActive: Bool
     
     enum SortOption: CaseIterable {
         case callsign
@@ -105,6 +105,11 @@ struct KSTChatView: View {
                             .frame(width: isLandscape ? 220 : 180)
                             .background(Color(.systemGray6))
                     }
+                    .simultaneousGesture(
+                        TapGesture().onEnded {
+                            isInputActive = false
+                        }
+                    )
                     
                     // Message input
                     messageInputView
@@ -216,6 +221,7 @@ struct KSTChatView: View {
                 }
                 .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
             .onChange(of: chatManager.chatMessages.count) {
                 withAnimation {
                     proxy.scrollTo(chatManager.chatMessages.count - 1, anchor: .bottom)
@@ -377,6 +383,7 @@ struct KSTChatView: View {
                         .background(selectedCallsign == user.callsign ? Color.blue.opacity(0.1) : Color.clear)
                     }
                     .listStyle(PlainListStyle())
+                    .scrollDismissesKeyboard(.interactively)
                     .padding(.horizontal, 0)
                     .padding(.vertical, 0)
                 }
@@ -414,6 +421,17 @@ struct KSTChatView: View {
             HStack {
                 TextField("Type a message...", text: $messageText)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .focused($isInputActive)
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button {
+                                isInputActive = false
+                            } label: {
+                                Image(systemName: "keyboard.chevron.compact.down")
+                            }
+                        }
+                    }
                     .onSubmit {
                         sendMessage()
                     }
