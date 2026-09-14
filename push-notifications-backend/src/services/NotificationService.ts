@@ -174,6 +174,12 @@ class NotificationService {
 
     log.debug(`[NOTIFY] Settings for ${username}: filter=${settings.notificationFilter} | service=${settings.notificationService || 'none'} | pushoverKey=${settings.pushoverUserKey?.slice(-4) || 'N/A'} | deviceToken=${!!settings.deviceToken}`);
 
+    // Filter out user's own messages
+    if (message.sender.toUpperCase() === settings.username.toUpperCase()) {
+      log.debug(`[NOTIFY] Ignored message sent by the user themselves (${message.sender}).`);
+      return { notified: false, reason: 'own_message' };
+    }
+
     // Apply notification filter
     let shouldNotify = false;
 
@@ -258,10 +264,15 @@ class NotificationService {
         const title = 'ON4KST Chat';
         const body = `${message.sender}: ${message.message}`;
 
+        // Extract URL from message text
+        const urlMatch = message.message.match(/(https?:\/\/[^\s]+[^.,;:'"()\[\]\s])/);
+        const extractedUrl = urlMatch ? urlMatch[0] : undefined;
+
         const success = await this.apnsService!.sendNotification(
           settings.deviceToken!,
           title,
-          body
+          body,
+          extractedUrl
         );
 
         log.debug(`[NOTIFY] APNs send result: ${success ? 'SUCCESS' : 'FAILED'}`);
@@ -278,12 +289,16 @@ class NotificationService {
         const title = 'ON4KST Chat';
         const messageText = `${message.sender}: ${message.message}`;
 
+        // Extract URL from message text
+        const urlMatch = message.message.match(/(https?:\/\/[^\s]+[^.,;:'"()\[\]\s])/);
+        const extractedUrl = urlMatch ? urlMatch[0] : undefined;
+
         const success = await this.pushoverService!.sendNotification(
           settings.pushoverUserKey!,
           messageText,
           title,
           0, // priority
-          this.pushoverDeepLinkUrl // url
+          extractedUrl || this.pushoverDeepLinkUrl // url
         );
 
         log.debug(`[NOTIFY] Pushover send result: ${success ? 'SUCCESS' : 'FAILED'}`);
@@ -335,7 +350,7 @@ class NotificationService {
       result.userSettings = settings ? (async () => {
         const s = await settings;
         if (s) {
-          const { password, ...safe } = s;
+          const { password, pushoverUserKey, deviceToken, ...safe } = s;
           return safe;
         }
         return null;
