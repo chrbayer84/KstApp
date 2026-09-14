@@ -21,11 +21,11 @@
       "screenshots": [],
       "versions": [
         {
-          "downloadURL": "https://github.com/chrbayer84/KstApp/releases/download/v1.4/KstApp.ipa",
+          "downloadURL": "https://github.com/chrbayer84/KstApp/releases/download/v1.5/KstApp.ipa",
           "size": 200000,
-          "version": "1.4",
+          "version": "1.5",
           "buildVersion": "1",
-          "date": "2026-07-06T12:09:41-04:00",
+          "date": "2026-09-14T16:52:09-04:00",
           "localizedDescription": null,
           "minOSVersion": null
         }
