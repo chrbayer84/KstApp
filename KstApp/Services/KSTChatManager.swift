@@ -32,10 +32,8 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     
     // MARK: - Grid Square Validation
     func isValidGridSquare(_ gridSquare: String) -> Bool {
-        guard gridSquare.count == 6 else { return false }
-        
-        let pattern = "^[A-Z]{2}[0-9]{2}[A-Z]{2}$"
-        let regex = try? NSRegularExpression(pattern: pattern)
+        let pattern = "^[A-R]{2}[0-9]{2}([A-X]{2})?$"
+        let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
         let range = NSRange(location: 0, length: gridSquare.utf16.count)
         return regex?.firstMatch(in: gridSquare, options: [], range: range) != nil
     }

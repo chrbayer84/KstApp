@@ -66,25 +66,26 @@ struct Gridsquare {
     
     // MARK: - Static Helper Methods
     private static func isValidGrid(_ grid: String) -> Bool {
-        let pattern = "^[A-R]{2}[0-9]{2}[A-X]{2}$"
-        let regex = try? NSRegularExpression(pattern: pattern)
+        let pattern = "^[A-R]{2}[0-9]{2}([A-X]{2})?$"
+        let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
         let range = NSRange(location: 0, length: grid.utf16.count)
         return regex?.firstMatch(in: grid, options: [], range: range) != nil
     }
     
     private static func coordinatesFromGrid(_ grid: String) -> (Double, Double) {
-        guard grid.count == 6 else { return (0, 0) }
+        guard grid.count >= 4 else { return (0, 0) } // allow 4 or 6 char grids
         
         let chars = Array(grid.uppercased())
-        let field1 = Int(chars[0].asciiValue! - Character("A").asciiValue!)
-        let field2 = Int(chars[1].asciiValue! - Character("A").asciiValue!)
-        let square1 = Int(String(chars[2])) ?? 0
-        let square2 = Int(String(chars[3])) ?? 0
-        let subsquare1 = Int(chars[4].asciiValue! - Character("A").asciiValue!)
-        let subsquare2 = Int(chars[5].asciiValue! - Character("A").asciiValue!)
+        let fieldLon = Int(chars[0].asciiValue! - Character("A").asciiValue!)
+        let fieldLat = Int(chars[1].asciiValue! - Character("A").asciiValue!)
+        let squareLon = Int(String(chars[2])) ?? 0
+        let squareLat = Int(String(chars[3])) ?? 0
         
-        let lat = Double(field1 * 10 + square1) + Double(subsquare1) / 24.0 + 1.0/48.0 - 90.0
-        let lon = Double(field2 * 20 + square2 * 2) + Double(subsquare2) / 12.0 + 1.0/24.0 - 180.0
+        let subsquareLon = grid.count >= 6 ? Int(chars[4].asciiValue! - Character("A").asciiValue!) : 12 // center for 4-char
+        let subsquareLat = grid.count >= 6 ? Int(chars[5].asciiValue! - Character("A").asciiValue!) : 12 // center for 4-char
+        
+        let lon = Double(fieldLon * 20 + squareLon * 2) + Double(subsquareLon) / 12.0 + (grid.count >= 6 ? 1.0/24.0 : 0) - 180.0
+        let lat = Double(fieldLat * 10 + squareLat) + Double(subsquareLat) / 24.0 + (grid.count >= 6 ? 1.0/48.0 : 0) - 90.0
         
         return (lat, lon)
     }
@@ -93,22 +94,22 @@ struct Gridsquare {
         let lat = latitude + 90.0
         let lon = longitude + 180.0
         
-        let field1 = Int(lat / 10)
-        let square1 = Int(lat.truncatingRemainder(dividingBy: 10))
-        let subsquare1 = Int((lat.truncatingRemainder(dividingBy: 1)) * 24)
+        let fieldLon = Int(lon / 20)
+        let squareLon = Int(lon.truncatingRemainder(dividingBy: 20) / 2)
+        let subsquareLon = Int((lon.truncatingRemainder(dividingBy: 2)) * 12)
         
-        let field2 = Int(lon / 20)
-        let square2 = Int((lon.truncatingRemainder(dividingBy: 20)) / 2)
-        let subsquare2 = Int(((lon.truncatingRemainder(dividingBy: 20)).truncatingRemainder(dividingBy: 2)) * 12)
+        let fieldLat = Int(lat / 10)
+        let squareLat = Int(lat.truncatingRemainder(dividingBy: 10))
+        let subsquareLat = Int((lat.truncatingRemainder(dividingBy: 1)) * 24)
         
-        let char1 = Character(UnicodeScalar(field1 + Int(Character("A").asciiValue!))!)
-        let char2 = Character(UnicodeScalar(field2 + Int(Character("A").asciiValue!))!)
-        let char3 = Character(UnicodeScalar(square1 + Int(Character("0").asciiValue!))!)
-        let char4 = Character(UnicodeScalar(square2 + Int(Character("0").asciiValue!))!)
-        let char5 = Character(UnicodeScalar(subsquare1 + Int(Character("A").asciiValue!))!)
-        let char6 = Character(UnicodeScalar(subsquare2 + Int(Character("A").asciiValue!))!)
+        let char1 = Character(UnicodeScalar(fieldLon + Int(Character("A").asciiValue!))!)
+        let char2 = Character(UnicodeScalar(fieldLat + Int(Character("A").asciiValue!))!)
+        let char3 = Character(UnicodeScalar(squareLon + Int(Character("0").asciiValue!))!)
+        let char4 = Character(UnicodeScalar(squareLat + Int(Character("0").asciiValue!))!)
+        let char5 = Character(UnicodeScalar(subsquareLon + Int(Character("a").asciiValue!))!)
+        let char6 = Character(UnicodeScalar(subsquareLat + Int(Character("a").asciiValue!))!)
         
-        return String([char1, char2, char3, char4, char5, char6])
+        return String([char1, char2, char3, char4, char5, char6]).uppercased()
     }
     
     private static func bearingBetween(lat1: Double, lon1: Double, lat2: Double, lon2: Double) -> Double {
