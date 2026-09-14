@@ -42,7 +42,7 @@ class ApnsService {
   /**
    * Send a push notification to a device
    */
-  async sendNotification(deviceToken: string, title: string, body: string): Promise<boolean> {
+  async sendNotification(deviceToken: string, title: string, body: string, url?: string): Promise<boolean> {
     if (!this.provider) {
       log.error('APNs provider not initialized');
       return false;
@@ -60,6 +60,9 @@ class ApnsService {
         title: title,
         body: body
       };
+      if (url) {
+        notification.payload = { url };
+      }
       notification.sound = 'default';
       notification.badge = 1;
       

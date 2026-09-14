@@ -50,8 +50,8 @@ class On4kstConnectionManager {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private livenessTimer: NodeJS.Timeout | null = null;
   private lastDataTimestamp: number = 0;
-  private livenessCheckIntervalMs: number = 30000; // Check every 30 seconds
-  private livenessTimeoutMs: number = 90000; // Declare dead after 90 seconds of no data
+  private livenessCheckIntervalMs: number = 300000; // Check every 5 minutes
+  private livenessTimeoutMs: number = 3600000; // Declare dead after 60 minutes of no data
   private initialConnectResolve: ((value: void | PromiseLike<void>) => void) | null = null;
 
   // Message deduplication - prevent duplicate notifications
@@ -121,6 +121,9 @@ class On4kstConnectionManager {
 
       // Create new connection
       this.connection = new net.Socket();
+      
+      // Enable TCP keep-alive (send keep-alive packets after 60 seconds of inactivity)
+      this.connection.setKeepAlive(true, 60000);
 
       this.connection.on('connect', () => {
         log.info('TCP socket connected to ON4KST server');

@@ -126,6 +126,9 @@ router.put('/:username', validateUserSettings, async (req: Request, res: Respons
       });
     }
     
+    // Load existing settings to avoid overwriting sensitive fields if not provided
+    const existingSettings = await UserSettingsService.getSettings(usernameParam);
+
     // Create settings object
     const settings: UserSettings = {
       username: username.toUpperCase(), // ON4KST uses uppercase
@@ -133,8 +136,8 @@ router.put('/:username', validateUserSettings, async (req: Request, res: Respons
       gridSquare: grid || undefined,
       notificationsEnabled: !!enabled,
       notificationFilter: (filter === 'all' || filter === 'myCallsign') ? filter : 'all',
-      deviceToken: token || undefined,
-      pushoverUserKey: pushKey || undefined,
+      deviceToken: req.body.deviceToken !== undefined ? (token || undefined) : existingSettings?.deviceToken,
+      pushoverUserKey: req.body.pushoverUserKey !== undefined ? (pushKey || undefined) : existingSettings?.pushoverUserKey,
       notificationService: service ? (service as 'apns' | 'pushover') : undefined,
       createdAt: new Date(), // Will be corrected by service if exists
       updatedAt: new Date()
@@ -190,7 +193,7 @@ router.get('/:username', async (req: Request, res: Response) => {
     }
     
     // Return settings without sensitive information
-    const { password, ...safeSettings } = settings;
+    const { password, pushoverUserKey, deviceToken, ...safeSettings } = settings;
     // Return with username from URL parameter to ensure consistency
     // Exclude username from spread to avoid duplication
     const { username: _, ...safeSettingsWithoutUsername } = safeSettings;
@@ -242,12 +245,12 @@ router.get('/', async (req: Request, res: Response) => {
     const usersPromises = usernames.map(async (username) => {
       const settings = await UserSettingsService.getSettings(username);
       if (settings) {
-        const { password, ...safeSettings } = settings;
+        const { password, pushoverUserKey, deviceToken, ...safeSettings } = settings;
         // Remove username from safeSettings to avoid duplication when we add it back
         const { username: _, ...userSettingsWithoutUsername } = safeSettings;
         return {
           username: username,
-          ...(userSettingsWithoutUsername as Omit<UserSettings, 'password' | 'username'>)
+          ...(userSettingsWithoutUsername as Omit<UserSettings, 'password' | 'username' | 'pushoverUserKey' | 'deviceToken'>)
         };
       }
       return null;
