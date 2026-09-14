@@ -311,10 +311,10 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 case .failed(let error):
                     self?.debugPrint("Connection failed: \(error)")
                     self?.isConnected = false
-                    self?.errorMessage = "Connection failed: \(error.localizedDescription)"
+                    
                     // Only attempt reconnection if network is available
                     if self?.isNetworkAvailable == true {
-                        self?.onReconnectionFailure()
+                        self?.onReconnectionFailure(error: error)
                     } else {
                         self?.debugPrint("Network unavailable, skipping reconnection attempt")
                     }
@@ -430,14 +430,14 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             DispatchQueue.main.async {
                 self.errorMessage = "Unknown User"
             }
-            disconnectChat()
+            disconnectChat(manual: true)
         } else if line.hasPrefix("Wrong password!") {
             debugPrint("Wrong password error")
             waitingForLoginPrompt = false
             DispatchQueue.main.async {
                 self.errorMessage = "Invalid password"
             }
-            disconnectChat()
+            disconnectChat(manual: true)
         } else if currentCommand == .login && line.contains("chat>") {
             // Login completed - this is the final response from the server
             debugPrint("Login command completed")
@@ -648,9 +648,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         connection.send(content: data, completion: .contentProcessed { error in
             if let error = error {
                 self.debugPrint("Error sending command: \(error)")
-                DispatchQueue.main.async {
-                    self.errorMessage = "Send error: \(error.localizedDescription)"
-                }
+                // Don't show send errors to the user, let the connection state handler deal with reconnection
             } else {
                 self.debugPrint("Command sent successfully")
             }
@@ -828,10 +826,22 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     }
     
     // MARK: - Automatic Reconnection
-    private func startAutomaticReconnection() {
-        // Only attempt reconnection if we have stored credentials, haven't exceeded max attempts, and network is available
-        guard !storedUsername.isEmpty && !storedPassword.isEmpty && reconnectAttempts < maxReconnectAttempts && isNetworkAvailable else {
-            debugPrint("Reconnection stopped: no credentials, max attempts reached, or network unavailable")
+    private func startAutomaticReconnection(lastError: NWError? = nil) {
+        // Only attempt reconnection if we have stored credentials and network is available
+        guard !storedUsername.isEmpty && !storedPassword.isEmpty && isNetworkAvailable else {
+            debugPrint("Reconnection stopped: no credentials or network unavailable")
+            return
+        }
+        
+        if reconnectAttempts >= maxReconnectAttempts {
+            debugPrint("Reconnection stopped: max attempts reached")
+            DispatchQueue.main.async {
+                if let error = lastError {
+                    self.errorMessage = "Connection failed: \(error.localizedDescription)"
+                } else {
+                    self.errorMessage = "Connection failed after multiple attempts."
+                }
+            }
             return
         }
         
@@ -905,14 +915,14 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         }
     }
     
-    private func onReconnectionFailure() {
+    private func onReconnectionFailure(error: NWError? = nil) {
         debugPrint("Reconnection failed, will retry...")
         
         // Exponential backoff: double the delay for next attempt
         reconnectDelay = min(reconnectDelay * 2, 60.0) // Cap at 60 seconds
         
         // Schedule next reconnection attempt
-        startAutomaticReconnection()
+        startAutomaticReconnection(lastError: error)
     }
     
     // MARK: - Push Notifications
@@ -1143,11 +1153,20 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         content.badge = NSNumber(value: chatMessages.count)
         
         // Add message data for potential deep linking
-        content.userInfo = [
+        var userInfo: [AnyHashable: Any] = [
             "sender": message.sender,
             "message": message.message,
             "time": message.time
         ]
+        
+        // Extract URL if present
+        let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+        let range = NSRange(location: 0, length: message.message.utf16.count)
+        if let match = detector?.firstMatch(in: message.message, options: [], range: range), let url = match.url {
+            userInfo["url"] = url.absoluteString
+        }
+        
+        content.userInfo = userInfo
         
         let request = UNNotificationRequest(
             identifier: "chat_message_\(Date().timeIntervalSince1970)",
@@ -1173,6 +1192,12 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
         // Handle notification tap - could implement deep linking here
         debugPrint("Notification tapped: \(response.notification.request.content.userInfo)")
+        
+        if let urlString = response.notification.request.content.userInfo["url"] as? String,
+           let url = URL(string: urlString) {
+            UIApplication.shared.open(url, options: [:], completionHandler: nil)
+        }
+        
         completionHandler()
     }
     
