@@ -16,13 +16,12 @@ struct KSTChatMsg: Hashable {
     }
     
     func hash(into hasher: inout Hasher) {
-        hasher.combine(time)
         hasher.combine(sender)
         hasher.combine(message)
     }
     
     static func == (lhs: KSTChatMsg, rhs: KSTChatMsg) -> Bool {
-        return lhs.time == rhs.time && lhs.sender == rhs.sender && lhs.message == rhs.message
+        return lhs.sender == rhs.sender && lhs.message == rhs.message
     }
 }
 
