@@ -545,8 +545,8 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             }
         } else {
             debugPrint("Line does not match command end pattern, checking for chat message")
-            // Check for regular chat message
-            let chatLinePattern = "([0-9]{4})Z (.*)>(.*)"
+            // Check for regular chat message. Use greedy match for the rest of the message so an internal '>' is treated as text
+            let chatLinePattern = "([0-9]{4})Z ([^>]+)>(.*)"
             if let regex = try? NSRegularExpression(pattern: chatLinePattern),
                let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
                match.numberOfRanges >= 4 {
@@ -764,8 +764,8 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         for record in buffer {
             debugPrint("Processing message record: '\(record)'")
             
-            // Parse message format: "HHMMZ SENDER>MESSAGE"
-            let messagePattern = "([0-9]{4})Z (.*)>(.*)"
+            // Parse message format: "HHMMZ SENDER>MESSAGE". Use greedy match for the rest of the message so an internal '>' is treated as text
+            let messagePattern = "([0-9]{4})Z ([^>]+)>(.*)"
             if let regex = try? NSRegularExpression(pattern: messagePattern),
                let match = regex.firstMatch(in: record, range: NSRange(record.startIndex..., in: record)),
                match.numberOfRanges >= 4 {
