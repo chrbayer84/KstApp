@@ -446,7 +446,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             debugPrint("Sending commands after login completion")
             sendSetGridCommand()
             sendShowUsersCommand()
-            // sendShowMessagesCommand() // DISABLED: Historic message loading
+            sendShowMessagesCommand()
             currentCommand = .none
         } else if waitingForLoginPrompt {
             debugPrint("Waiting for Login: prompt, ignoring line: \(line)")
@@ -706,7 +706,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     
     private func sendShowMessagesCommand() {
         debugPrint("Sending show messages command")
-        sendCommand(.showMessages, "/show msg 50")
+        sendCommand(.showMessages, "/show msg 10")
     }
     
     private func finalizeShowUsersCommand(_ buffer: [String]) {
@@ -809,9 +809,20 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         
         debugPrint("Sorted \(sortedMessages.count) messages chronologically")
         
-        // Add messages to the beginning of the chat (historical messages)
+        // Add messages to the chat (historical messages), removing duplicates
         DispatchQueue.main.async {
-            self.chatMessages = sortedMessages + self.chatMessages
+            let existingSet = Set(self.chatMessages)
+            let uniqueNewMessages = sortedMessages.filter { !existingSet.contains($0) }
+            
+            self.chatMessages.append(contentsOf: uniqueNewMessages)
+            
+            // Re-sort the entire message list to ensure chronological order after merging
+            self.chatMessages.sort { msg1, msg2 in
+                let t1 = self.parseTimeString(msg1.time)
+                let t2 = self.parseTimeString(msg2.time)
+                return t1 < t2
+            }
+            
             // Update lastMessageCount to prevent notifications for historical messages
             self.lastMessageCount = self.chatMessages.count
             // Clear the flag now that historical messages are loaded

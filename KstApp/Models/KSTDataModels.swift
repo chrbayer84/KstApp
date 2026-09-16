@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 // MARK: - KST Chat Message
-struct KSTChatMsg {
+struct KSTChatMsg: Hashable {
     let time: String
     let sender: String
     let message: String
@@ -13,6 +13,16 @@ struct KSTChatMsg {
         self.sender = sender
         self.message = message
         self.grid = grid
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(time)
+        hasher.combine(sender)
+        hasher.combine(message)
+    }
+    
+    static func == (lhs: KSTChatMsg, rhs: KSTChatMsg) -> Bool {
+        return lhs.time == rhs.time && lhs.sender == rhs.sender && lhs.message == rhs.message
     }
 }
 
