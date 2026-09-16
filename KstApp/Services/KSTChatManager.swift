@@ -920,7 +920,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         debugPrint("Reconnection failed, will retry...")
         
         // Exponential backoff: double the delay for next attempt
-        reconnectDelay = min(reconnectDelay * 2, 60.0) // Cap at 60 seconds
+        reconnectDelay = min(reconnectDelay * 2, 15.0) // Cap at 15 seconds
         
         // Schedule next reconnection attempt
         startAutomaticReconnection(lastError: error)
