@@ -175,7 +175,7 @@ class NotificationService {
     log.debug(`[NOTIFY] Settings for ${username}: filter=${settings.notificationFilter} | service=${settings.notificationService || 'none'} | pushoverKey=${settings.pushoverUserKey?.slice(-4) || 'N/A'} | deviceToken=${!!settings.deviceToken}`);
 
     // Filter out user's own messages
-    if (message.sender.toUpperCase() === settings.username.toUpperCase()) {
+    if (message.sender.toUpperCase().startsWith(settings.username.toUpperCase())) {
       log.debug(`[NOTIFY] Ignored message sent by the user themselves (${message.sender}).`);
       return { notified: false, reason: 'own_message' };
     }
