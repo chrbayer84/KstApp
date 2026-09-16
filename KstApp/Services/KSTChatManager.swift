@@ -19,7 +19,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     // MARK: - Constants
     private static let hostname = "www.on4kst.info"
     private static let port: UInt16 = 23000
-    private static let updateUsersListInterval: TimeInterval = 3 * 60 // 3 minutes
+    private static let updateUsersListInterval: TimeInterval = 30 // 30 seconds
     private static let secureStorageKey = "KST"
     private static let debugEnabled = false // Set to true to enable debug messages
     
