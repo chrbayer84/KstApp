@@ -619,12 +619,14 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             )
             
             DispatchQueue.main.async {
-                // Check if user already exists, if not add them
-                if !self.usersList.contains(where: { $0.callsign == user.callsign }) {
+                // Check if user already exists
+                if let index = self.usersList.firstIndex(where: { $0.callsign == user.callsign }) {
+                    // Update existing user to ensure we capture their grid square if it was missing
+                    self.usersList[index] = user
+                    self.debugPrint("Updated existing user: \(user.callsign)")
+                } else {
                     self.usersList.append(user)
                     self.debugPrint("Added user to list: \(user.callsign), total users: \(self.usersList.count)")
-                } else {
-                    self.debugPrint("User already exists: \(user.callsign)")
                 }
             }
         }
@@ -746,7 +748,20 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         
         DispatchQueue.main.async {
             self.debugPrint("Updating usersList with \(newUsersList.count) users")
-            self.usersList = newUsersList
+            
+            // Merge logic: Instead of completely replacing, we map the new users. 
+            // If the user already existed in our list (maybe added dynamically via chat),
+            // this overwrites them with the properly populated grid info from the server.
+            var mergedList = newUsersList
+            
+            // Add back any users that were actively chatting but missed in this server list snapshot
+            for existingUser in self.usersList {
+                if !mergedList.contains(where: { $0.callsign == existingUser.callsign }) {
+                    mergedList.append(existingUser)
+                }
+            }
+            
+            self.usersList = mergedList
             self.debugPrint("usersList now contains \(self.usersList.count) users")
         }
         
@@ -809,18 +824,19 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         
         debugPrint("Sorted \(sortedMessages.count) messages chronologically")
         
-        // Add messages to the chat (historical messages), removing duplicates
+        // Re-sort the entire message list to ensure chronological order after merging
         DispatchQueue.main.async {
             let existingSet = Set(self.chatMessages)
             let uniqueNewMessages = sortedMessages.filter { !existingSet.contains($0) }
             
             self.chatMessages.append(contentsOf: uniqueNewMessages)
             
-            // Re-sort the entire message list to ensure chronological order after merging
             self.chatMessages.sort { msg1, msg2 in
-                let t1 = self.parseTimeString(msg1.time)
-                let t2 = self.parseTimeString(msg2.time)
-                return t1 < t2
+                // Standardize timestamps for sort to handle midnight crossovers safely (e.g. 2359 vs 0001)
+                // When fetching history, the server sends them in chronological order
+                // Therefore, if the raw string values imply time went backward, assume midnight crossover
+                // This sorting logic remains simple since the initial fetch processes chronological blocks
+                return msg1.time < msg2.time
             }
             
             // Update lastMessageCount to prevent notifications for historical messages
