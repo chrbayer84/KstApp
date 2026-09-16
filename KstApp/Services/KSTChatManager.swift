@@ -75,10 +75,10 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     private var reconnectAttempts = 0
     private var maxReconnectAttempts = 5
     private var reconnectDelay: TimeInterval = 5.0 // Start with 5 seconds
-    private var storedUsername: String = ""
-    private var storedPassword: String = ""
-    private var storedRoomIndex: Int = 1
-    private var storedGridSquare: String = ""
+    var storedUsername: String = ""
+    var storedPassword: String = ""
+    var storedRoomIndex: Int = 1
+    var storedGridSquare: String = ""
     private var lastMessageCount = 0
     private var isAppInBackground = false
     private var isLoadingHistoricalMessages = false

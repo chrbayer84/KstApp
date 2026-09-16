@@ -182,7 +182,16 @@ struct KSTChatView: View {
                         .controlSize(.small)
                     } else {
                         Button("Connect") {
-                            showingLogin = true
+                            if !chatManager.storedUsername.isEmpty && !chatManager.storedPassword.isEmpty {
+                                chatManager.connectChat(
+                                    roomIndex: chatManager.storedRoomIndex,
+                                    username: chatManager.storedUsername,
+                                    password: chatManager.storedPassword,
+                                    gridSquare: chatManager.storedGridSquare
+                                )
+                            } else {
+                                showingLogin = true
+                            }
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
