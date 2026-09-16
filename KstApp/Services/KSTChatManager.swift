@@ -831,7 +831,10 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             return
         }
         
-        if reconnectAttempts >= maxReconnectAttempts {
+        let errorDesc = lastError?.localizedDescription.lowercased() ?? ""
+        let isTransientError = errorDesc.contains("53") || errorDesc.contains("abort") || errorDesc.contains("50") || errorDesc.contains("54") || errorDesc.contains("reset")
+        
+        if reconnectAttempts >= maxReconnectAttempts && !isTransientError {
             debugPrint("Reconnection stopped: max attempts reached")
             DispatchQueue.main.async {
                 if let error = lastError {
@@ -844,7 +847,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         }
         
         reconnectAttempts += 1
-        debugPrint("Starting automatic reconnection attempt \(reconnectAttempts)/\(maxReconnectAttempts) in \(reconnectDelay) seconds")
+        debugPrint("Starting automatic reconnection attempt \(reconnectAttempts) in \(reconnectDelay) seconds")
         
         // Schedule reconnection with exponential backoff
         reconnectTimer = Timer.scheduledTimer(withTimeInterval: reconnectDelay, repeats: false) { [weak self] _ in
