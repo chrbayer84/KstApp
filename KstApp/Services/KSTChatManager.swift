@@ -566,6 +566,14 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 
                 DispatchQueue.main.async {
                     self.chatMessages.append(chatMsg)
+                    
+                    // Add sender to usersList if they aren't already there
+                    if !self.usersList.contains(where: { $0.callsign == sender }) && sender != "SYSTEM" && sender != "ON4KST" {
+                        let newUser = KSTUsersInfo(callsign: sender, grid: Gridsquare(), name: "")
+                        self.usersList.append(newUser)
+                        self.debugPrint("Added newly joined user to list via chat message: \(sender)")
+                    }
+                    
                     // Notification handling is now done by the backend service
                     // self.sendNotificationForNewMessage(chatMsg)
                 }
@@ -576,7 +584,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                     debugPrint("Command buffer now has \(commandLineBuffer.count) lines")
                 } else {
                     // Check if this looks like user list data (callsign + grid + name)
-                    let userListPattern = "^(\\S{3,})\\s{1,}(\\S+)\\s(.*)$"
+                    let userListPattern = "^([A-Za-z0-9/\\-]+)\\s+([A-Ra-r]{2}[0-9]{2}[A-Xa-x]{0,2})\\s*(.*)$"
                     if let regex = try? NSRegularExpression(pattern: userListPattern),
                        let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
                        match.numberOfRanges >= 4 {
@@ -592,7 +600,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     }
     
     private func processUserListLine(_ line: String) {
-        let recordPattern = "^(\\S{3,})\\s{1,}(\\S+)\\s(.*)$"
+        let recordPattern = "^([A-Za-z0-9/\\-]+)\\s+([A-Ra-r]{2}[0-9]{2}[A-Xa-x]{0,2})\\s*(.*)$"
         
         if let regex = try? NSRegularExpression(pattern: recordPattern),
            let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
@@ -702,7 +710,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     }
     
     private func finalizeShowUsersCommand(_ buffer: [String]) {
-        let recordPattern = "^(\\S{3,})\\s{1,}(\\S+)\\s(.*)$"
+        let recordPattern = "^([A-Za-z0-9/\\-]+)\\s+([A-Ra-r]{2}[0-9]{2}[A-Xa-x]{0,2})\\s*(.*)$"
         
         debugPrint("Processing user list buffer with \(buffer.count) records:")
         for (index, record) in buffer.enumerated() {

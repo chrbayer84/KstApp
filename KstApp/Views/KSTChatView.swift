@@ -504,7 +504,7 @@ struct KSTChatView: View {
                 .disabled(username.isEmpty || password.isEmpty || (!gridSquare.isEmpty && !chatManager.isValidGridSquare(gridSquare)))
             }
             .padding()
-            .navigationTitle("KST Login")
+            .navigationTitle("ON4KST Login")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
