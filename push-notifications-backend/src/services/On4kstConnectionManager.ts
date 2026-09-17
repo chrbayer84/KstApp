@@ -589,7 +589,7 @@ class On4kstConnectionManager {
    */
   private isChatMessage(line: string): boolean {
     // Pattern: HHMMZ SENDER>MESSAGE
-    const pattern = /^([0-9]{4})Z (.*)>(.*)$/;
+    const pattern = /^([0-9]{4})Z ([^>]+)>(.*)$/;
     return pattern.test(line);
   }
 
@@ -597,20 +597,23 @@ class On4kstConnectionManager {
    * Handle a chat message line
    */
   private handleChatMessage(line: string): void {
-    const match = line.match(/^([0-9]{4})Z (.*)>(.*)$/);
+    const match = line.match(/^([0-9]{4})Z ([^>]+)>(.*)$/);
     if (!match) {
       log.warn(`[CHAT] Regex failed for presumed chat line: "${line}"`);
       return;
     }
 
-    const [, time, sender, message] = match;
+    const [, time, rawSender, message] = match;
+    
+    // Extract just the callsign (e.g. from "VA3IKE Ike") to prevent issues with filtering
+    const sender = rawSender.trim().split(/\s+/)[0] || rawSender.trim();
 
-    log.debug(`[CHAT] Parsed: time=${time}, sender="${sender.trim()}", message="${message.trim().substring(0,60)}..."`);
+    log.debug(`[CHAT] Parsed: time=${time}, sender="${sender}", message="${message.trim().substring(0,60)}..."`);
 
     // Create chat message object
     const chatMessage: ChatMessage = {
       time: time, // HHMM format (UTC)
-      sender: sender.trim(),
+      sender: sender,
       message: message.startsWith(' ') ? message.substring(1) : message, // Remove leading space if present
     };
 
