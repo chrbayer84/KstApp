@@ -551,7 +551,10 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
                match.numberOfRanges >= 4 {
                 
-                let sender = String(line[Range(match.range(at: 2), in: line)!])
+                let rawSender = String(line[Range(match.range(at: 2), in: line)!])
+                // Extract just the callsign from the sender string (everything before the first space)
+                let sender = rawSender.components(separatedBy: .whitespaces).first ?? rawSender
+                
                 let message = String(line[Range(match.range(at: 3), in: line)!])
                 let grid = getUserInfo(for: sender)?.grid ?? Gridsquare()
                 
@@ -794,7 +797,11 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                match.numberOfRanges >= 4 {
                 
                 let time = String(record[Range(match.range(at: 1), in: record)!])
-                let sender = String(record[Range(match.range(at: 2), in: record)!])
+                
+                let rawSender = String(record[Range(match.range(at: 2), in: record)!])
+                // Extract just the callsign from the sender string (everything before the first space)
+                let sender = rawSender.components(separatedBy: .whitespaces).first ?? rawSender
+                
                 let message = String(record[Range(match.range(at: 3), in: record)!])
                 
                 debugPrint("Parsed message: time='\(time)', sender='\(sender)', message='\(message)'")
