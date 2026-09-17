@@ -543,6 +543,10 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 let (command, message) = commandQueue.removeFirst()
                 sendCommand(command, message)
             }
+        } else if currentCommand != .none {
+            debugPrint("Adding to command buffer: \(line) (current command: \(currentCommand))")
+            commandLineBuffer.append(line)
+            debugPrint("Command buffer now has \(commandLineBuffer.count) lines")
         } else {
             debugPrint("Line does not match command end pattern, checking for chat message")
             // Check for regular chat message. Use greedy match for the rest of the message so an internal '>' is treated as text
@@ -551,15 +555,14 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
                match.numberOfRanges >= 4 {
                 
-                let rawSender = String(line[Range(match.range(at: 2), in: line)!])
-                // Extract just the callsign from the sender string (everything before the first space)
-                let sender = rawSender.components(separatedBy: .whitespaces).first ?? rawSender
-                
+                let time = String(line[Range(match.range(at: 1), in: line)!])
+                let sender = String(line[Range(match.range(at: 2), in: line)!])
                 let message = String(line[Range(match.range(at: 3), in: line)!])
-                let grid = getUserInfo(for: sender)?.grid ?? Gridsquare()
+                let callsign = sender.components(separatedBy: .whitespaces).first ?? sender
+                let grid = getUserInfo(for: callsign)?.grid ?? Gridsquare()
                 
                 let chatMsg = KSTChatMsg(
-                    time: DateFormatter.timeFormatter.string(from: Date()),
+                    time: time,
                     sender: sender,
                     message: message,
                     grid: grid
@@ -569,75 +572,48 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 
                 DispatchQueue.main.async {
                     self.chatMessages.append(chatMsg)
-                    
-                    // Add sender to usersList if they aren't already there
-                    if !self.usersList.contains(where: { $0.callsign == sender }) && sender != "SYSTEM" && sender != "ON4KST" {
-                        let newUser = KSTUsersInfo(callsign: sender, grid: Gridsquare(), name: "")
-                        self.usersList.append(newUser)
-                        self.debugPrint("Added newly joined user to list via chat message: \(sender)")
-                    }
-                    
-                    // Notification handling is now done by the backend service
-                    // self.sendNotificationForNewMessage(chatMsg)
                 }
             } else {
-                if currentCommand != .none {
-                    debugPrint("Adding to command buffer: \(line) (current command: \(currentCommand))")
-                    commandLineBuffer.append(line)
-                    debugPrint("Command buffer now has \(commandLineBuffer.count) lines")
+                // Check if this looks like user list data (callsign + grid + name)
+                let userListPattern = "^\\(?(\\S+?)\\)?\\s+\\(?([A-Ra-r]{2}[0-9]{2}[A-Xa-x]{0,2})\\)?(?:\\s+(.*))?$"
+                if let regex = try? NSRegularExpression(pattern: userListPattern),
+                   let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+                   match.numberOfRanges >= 3 {
+                    debugPrint("Detected user list data outside of command context: \(line)")
+                    // Process this as a standalone user list entry
+                    processUserListLine(line)
                 } else {
-                    // Check if this looks like user list data (callsign + grid + name)
-                    let userListPattern = "^(.*?)\\s+([A-Ra-r]{2}[0-9]{2}[A-Xa-x]{0,2})(?:\\s+(.*))?$"
-                    if let regex = try? NSRegularExpression(pattern: userListPattern),
-                       let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
-                       match.numberOfRanges >= 4 {
-                        debugPrint("Detected user list data outside of command context: \(line)")
-                        // Process this as a standalone user list entry
-                        processUserListLine(line)
-                    } else {
-                        debugPrint("Unrecognized line: \(line)")
-                    }
+                    debugPrint("Unrecognized line: \(line)")
                 }
             }
         }
     }
     
     private func processUserListLine(_ line: String) {
-        let recordPattern = "^(.*?)\\s+([A-Ra-r]{2}[0-9]{2}[A-Xa-x]{0,2})(?:\\s+(.*))?$"
+        let recordPattern = "^\\(?(\\S+?)\\)?\\s+\\(?([A-Ra-r]{2}[0-9]{2}[A-Xa-x]{0,2})\\)?(?:\\s+(.*))?$"
         
         if let regex = try? NSRegularExpression(pattern: recordPattern),
            let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
-           match.numberOfRanges >= 4 {
+           match.numberOfRanges >= 3 {
             
-            let rawCallsign = String(line[Range(match.range(at: 1), in: line)!]).replacingOccurrences(of: "(", with: "").replacingOccurrences(of: ")", with: "")
-            // Extract just the callsign (e.g. from "VA3IKE Ike") to prevent duplicates
-            let callsign = rawCallsign.components(separatedBy: .whitespaces).first ?? rawCallsign
+            let callsign = String(line[Range(match.range(at: 1), in: line)!]).replacingOccurrences(of: "(", with: "").replacingOccurrences(of: ")", with: "").trimmingCharacters(in: .whitespaces)
+            let gridString = String(line[Range(match.range(at: 2), in: line)!]).replacingOccurrences(of: "(", with: "").replacingOccurrences(of: ")", with: "").trimmingCharacters(in: .whitespaces)
             
-            let gridString = String(line[Range(match.range(at: 2), in: line)!])
-            
-            // Extract name if provided (everything after grid string that isn't empty)
-            let stationComment = String(line[Range(match.range(at: 3), in: line)!]).trimmingCharacters(in: .whitespaces)
-            var extractedName = stationComment
-            if extractedName.isEmpty {
-                // Try to extract name from the callsign field if it was bundled there
-                let callsignParts = rawCallsign.components(separatedBy: .whitespaces)
-                if callsignParts.count > 1 {
-                    extractedName = callsignParts[1...].joined(separator: " ")
-                }
+            var stationComment = ""
+            if match.numberOfRanges >= 4 && match.range(at: 3).location != NSNotFound {
+                stationComment = String(line[Range(match.range(at: 3), in: line)!]).trimmingCharacters(in: .whitespaces)
             }
             
-            debugPrint("Processing standalone user: callsign='\(callsign)', grid='\(gridString)', comment='\(extractedName)'")
+            debugPrint("Processing standalone user: callsign='\(callsign)', grid='\(gridString)', comment='\(stationComment)'")
             
             let user = KSTUsersInfo(
                 callsign: callsign,
                 grid: Gridsquare(grid: gridString),
-                name: extractedName
+                name: stationComment
             )
             
             DispatchQueue.main.async {
-                // Check if user already exists
                 if let index = self.usersList.firstIndex(where: { $0.callsign == user.callsign }) {
-                    // Update existing user to ensure we capture their grid square if it was missing
                     self.usersList[index] = user
                     self.debugPrint("Updated existing user: \(user.callsign)")
                 } else {
@@ -728,7 +704,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     }
     
     private func finalizeShowUsersCommand(_ buffer: [String]) {
-        let recordPattern = "^(.*?)\\s+([A-Ra-r]{2}[0-9]{2}[A-Xa-x]{0,2})(?:\\s+(.*))?$"
+        let recordPattern = "^\\(?(\\S+?)\\)?\\s+\\(?([A-Ra-r]{2}[0-9]{2}[A-Xa-x]{0,2})\\)?(?:\\s+(.*))?$"
         
         debugPrint("Processing user list buffer with \(buffer.count) records:")
         for (index, record) in buffer.enumerated() {
@@ -741,23 +717,14 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         for record in buffer {
             if let regex = try? NSRegularExpression(pattern: recordPattern),
                let match = regex.firstMatch(in: record, range: NSRange(record.startIndex..., in: record)),
-               match.numberOfRanges >= 4 {
+               match.numberOfRanges >= 3 {
                 
-                let rawCallsign = String(record[Range(match.range(at: 1), in: record)!]).replacingOccurrences(of: "(", with: "").replacingOccurrences(of: ")", with: "")
-                // Extract just the callsign (e.g. from "VA3IKE Ike") to prevent duplicates
-                let callsign = rawCallsign.components(separatedBy: .whitespaces).first ?? rawCallsign
+                let callsign = String(record[Range(match.range(at: 1), in: record)!]).replacingOccurrences(of: "(", with: "").replacingOccurrences(of: ")", with: "").trimmingCharacters(in: .whitespaces)
+                let gridString = String(record[Range(match.range(at: 2), in: record)!]).replacingOccurrences(of: "(", with: "").replacingOccurrences(of: ")", with: "").trimmingCharacters(in: .whitespaces)
                 
-                let gridString = String(record[Range(match.range(at: 2), in: record)!])
-                
-                // Extract name if provided
-                let stationComment = String(record[Range(match.range(at: 3), in: record)!]).trimmingCharacters(in: .whitespaces)
-                var extractedName = stationComment
-                if extractedName.isEmpty {
-                    // Try to extract name from the callsign field if it was bundled there
-                    let callsignParts = rawCallsign.components(separatedBy: .whitespaces)
-                    if callsignParts.count > 1 {
-                        extractedName = callsignParts[1...].joined(separator: " ")
-                    }
+                var stationComment = ""
+                if match.numberOfRanges >= 4 && match.range(at: 3).location != NSNotFound {
+                    stationComment = String(record[Range(match.range(at: 3), in: record)!]).trimmingCharacters(in: .whitespaces)
                 }
                 
                 if seenCallsigns.contains(callsign) {
@@ -765,12 +732,12 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 }
                 seenCallsigns.insert(callsign)
                 
-                debugPrint("Parsed user: callsign='\(callsign)', grid='\(gridString)', comment='\(extractedName)'")
+                debugPrint("Parsed user: callsign='\(callsign)', grid='\(gridString)', comment='\(stationComment)'")
                 
                 let user = KSTUsersInfo(
                     callsign: callsign,
                     grid: Gridsquare(grid: gridString),
-                    name: extractedName
+                    name: stationComment
                 )
                 
                 newUsersList.append(user)
@@ -783,20 +750,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         
         DispatchQueue.main.async {
             self.debugPrint("Updating usersList with \(newUsersList.count) users")
-            
-            // Merge logic: Instead of completely replacing, we map the new users. 
-            // If the user already existed in our list (maybe added dynamically via chat),
-            // this overwrites them with the properly populated grid info from the server.
-            var mergedList = newUsersList
-            
-            // Add back any users that were actively chatting but missed in this server list snapshot
-            for existingUser in self.usersList {
-                if !mergedList.contains(where: { $0.callsign == existingUser.callsign }) {
-                    mergedList.append(existingUser)
-                }
-            }
-            
-            self.usersList = mergedList
+            self.usersList = newUsersList
             self.debugPrint("usersList now contains \(self.usersList.count) users")
         }
         
@@ -829,11 +783,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                match.numberOfRanges >= 4 {
                 
                 let time = String(record[Range(match.range(at: 1), in: record)!])
-                
-                let rawSender = String(record[Range(match.range(at: 2), in: record)!])
-                // Extract just the callsign from the sender string (everything before the first space)
-                let sender = rawSender.components(separatedBy: .whitespaces).first ?? rawSender
-                
+                let sender = String(record[Range(match.range(at: 2), in: record)!])
                 let message = String(record[Range(match.range(at: 3), in: record)!])
                 
                 debugPrint("Parsed message: time='\(time)', sender='\(sender)', message='\(message)'")
@@ -863,16 +813,10 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             // 1. 1205Z SENDER>Hello
             // 2. 1204Z SENDER>Test
             // We need to reverse this block so it is chronological (oldest to newest)
-            let chronologicalNewMessages = uniqueNewMessages.reversed()
+            let chronologicalNewMessages = Array(uniqueNewMessages.reversed())
             
-            // We prepend the historical messages so they appear *before* any live messages 
-            // that may have arrived while we were fetching history.
+            // We prepend the historical messages so they appear *before* any live messages
             self.chatMessages.insert(contentsOf: chronologicalNewMessages, at: 0)
-            
-            // We do NOT do a full array sort here. A full sort by time string (e.g., 2359 < 0001) 
-            // will scramble the array during midnight crossovers. Since we inserted the historical 
-            // block at the beginning (and reversed it to be chronological), the entire array is 
-            // naturally in the correct order.
             
             // Update lastMessageCount to prevent notifications for historical messages
             self.lastMessageCount = self.chatMessages.count
