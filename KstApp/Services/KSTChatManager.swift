@@ -626,12 +626,12 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 }
             }
             
-            debugPrint("Processing standalone user: callsign='\(callsign)', grid='\(gridString)', comment='\(stationComment)'")
+            debugPrint("Processing standalone user: callsign='\(callsign)', grid='\(gridString)', comment='\(extractedName)'")
             
             let user = KSTUsersInfo(
                 callsign: callsign,
                 grid: Gridsquare(grid: gridString),
-                name: stationComment
+                name: extractedName
             )
             
             DispatchQueue.main.async {
