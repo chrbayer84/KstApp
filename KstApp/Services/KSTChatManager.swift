@@ -587,7 +587,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                     debugPrint("Command buffer now has \(commandLineBuffer.count) lines")
                 } else {
                     // Check if this looks like user list data (callsign + grid + name)
-                    let userListPattern = "^([A-Za-z0-9/\\-]+)\\s+([A-Ra-r]{2}[0-9]{2}[A-Xa-x]{0,2})\\s*(.*)$"
+                    let userListPattern = "^(.*?)\\s+([A-Ra-r]{2}[0-9]{2}[A-Xa-x]{0,2})(?:\\s+(.*))?$"
                     if let regex = try? NSRegularExpression(pattern: userListPattern),
                        let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
                        match.numberOfRanges >= 4 {
@@ -603,7 +603,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     }
     
     private func processUserListLine(_ line: String) {
-        let recordPattern = "^([A-Za-z0-9/\\-]+)\\s+([A-Ra-r]{2}[0-9]{2}[A-Xa-x]{0,2})\\s*(.*)$"
+        let recordPattern = "^(.*?)\\s+([A-Ra-r]{2}[0-9]{2}[A-Xa-x]{0,2})(?:\\s+(.*))?$"
         
         if let regex = try? NSRegularExpression(pattern: recordPattern),
            let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
@@ -728,7 +728,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     }
     
     private func finalizeShowUsersCommand(_ buffer: [String]) {
-        let recordPattern = "^([A-Za-z0-9/\\-]+)\\s+([A-Ra-r]{2}[0-9]{2}[A-Xa-x]{0,2})\\s*(.*)$"
+        let recordPattern = "^(.*?)\\s+([A-Ra-r]{2}[0-9]{2}[A-Xa-x]{0,2})(?:\\s+(.*))?$"
         
         debugPrint("Processing user list buffer with \(buffer.count) records:")
         for (index, record) in buffer.enumerated() {
