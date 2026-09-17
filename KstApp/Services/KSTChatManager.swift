@@ -853,30 +853,26 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         
         debugPrint("Parsed \(newMessages.count) messages from \(buffer.count) records")
         
-        // Sort messages by timestamp to ensure correct chronological order
-        let sortedMessages = newMessages.sorted { message1, message2 in
-            // Parse timestamps and compare them
-            let time1 = self.parseTimeString(message1.time)
-            let time2 = self.parseTimeString(message2.time)
-            return time1 < time2
-        }
-        
-        debugPrint("Sorted \(sortedMessages.count) messages chronologically")
-        
         // Re-sort the entire message list to ensure chronological order after merging
         DispatchQueue.main.async {
             let existingSet = Set(self.chatMessages)
-            let uniqueNewMessages = sortedMessages.filter { !existingSet.contains($0) }
+            let uniqueNewMessages = newMessages.filter { !existingSet.contains($0) }
             
-            self.chatMessages.append(contentsOf: uniqueNewMessages)
+            // Note: The ON4KST server sends /show msg history with the NEWEST messages FIRST.
+            // Example:
+            // 1. 1205Z SENDER>Hello
+            // 2. 1204Z SENDER>Test
+            // We need to reverse this block so it is chronological (oldest to newest)
+            let chronologicalNewMessages = uniqueNewMessages.reversed()
             
-            self.chatMessages.sort { msg1, msg2 in
-                // Standardize timestamps for sort to handle midnight crossovers safely (e.g. 2359 vs 0001)
-                // When fetching history, the server sends them in chronological order
-                // Therefore, if the raw string values imply time went backward, assume midnight crossover
-                // This sorting logic remains simple since the initial fetch processes chronological blocks
-                return self.parseTimeString(msg1.time) < self.parseTimeString(msg2.time)
-            }
+            // We prepend the historical messages so they appear *before* any live messages 
+            // that may have arrived while we were fetching history.
+            self.chatMessages.insert(contentsOf: chronologicalNewMessages, at: 0)
+            
+            // We do NOT do a full array sort here. A full sort by time string (e.g., 2359 < 0001) 
+            // will scramble the array during midnight crossovers. Since we inserted the historical 
+            // block at the beginning (and reversed it to be chronological), the entire array is 
+            // naturally in the correct order.
             
             // Update lastMessageCount to prevent notifications for historical messages
             self.lastMessageCount = self.chatMessages.count
