@@ -614,7 +614,17 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             let callsign = rawCallsign.components(separatedBy: .whitespaces).first ?? rawCallsign
             
             let gridString = String(line[Range(match.range(at: 2), in: line)!])
-            let stationComment = String(line[Range(match.range(at: 3), in: line)!])
+            
+            // Extract name if provided (everything after grid string that isn't empty)
+            let stationComment = String(line[Range(match.range(at: 3), in: line)!]).trimmingCharacters(in: .whitespaces)
+            var extractedName = stationComment
+            if extractedName.isEmpty {
+                // Try to extract name from the callsign field if it was bundled there
+                let callsignParts = rawCallsign.components(separatedBy: .whitespaces)
+                if callsignParts.count > 1 {
+                    extractedName = callsignParts[1...].joined(separator: " ")
+                }
+            }
             
             debugPrint("Processing standalone user: callsign='\(callsign)', grid='\(gridString)', comment='\(stationComment)'")
             
@@ -738,19 +748,29 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 let callsign = rawCallsign.components(separatedBy: .whitespaces).first ?? rawCallsign
                 
                 let gridString = String(record[Range(match.range(at: 2), in: record)!])
-                let stationComment = String(record[Range(match.range(at: 3), in: record)!])
+                
+                // Extract name if provided
+                let stationComment = String(record[Range(match.range(at: 3), in: record)!]).trimmingCharacters(in: .whitespaces)
+                var extractedName = stationComment
+                if extractedName.isEmpty {
+                    // Try to extract name from the callsign field if it was bundled there
+                    let callsignParts = rawCallsign.components(separatedBy: .whitespaces)
+                    if callsignParts.count > 1 {
+                        extractedName = callsignParts[1...].joined(separator: " ")
+                    }
+                }
                 
                 if seenCallsigns.contains(callsign) {
                     continue
                 }
                 seenCallsigns.insert(callsign)
                 
-                debugPrint("Parsed user: callsign='\(callsign)', grid='\(gridString)', comment='\(stationComment)'")
+                debugPrint("Parsed user: callsign='\(callsign)', grid='\(gridString)', comment='\(extractedName)'")
                 
                 let user = KSTUsersInfo(
                     callsign: callsign,
                     grid: Gridsquare(grid: gridString),
-                    name: stationComment
+                    name: extractedName
                 )
                 
                 newUsersList.append(user)
@@ -855,7 +875,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 // When fetching history, the server sends them in chronological order
                 // Therefore, if the raw string values imply time went backward, assume midnight crossover
                 // This sorting logic remains simple since the initial fetch processes chronological blocks
-                return msg1.time < msg2.time
+                return self.parseTimeString(msg1.time) < self.parseTimeString(msg2.time)
             }
             
             // Update lastMessageCount to prevent notifications for historical messages

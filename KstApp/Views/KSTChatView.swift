@@ -549,18 +549,18 @@ struct KSTChatView: View {
     
     private func displayTextForCallsign(_ callsign: String) -> String {
         let userInfo = chatManager.usersList.first { $0.callsign == callsign }
-        let gridText = userInfo?.grid.grid ?? ""
+        let gridText = userInfo?.grid.getGrid() ?? ""
         let nameText = userInfo?.name ?? ""
         
-        if !nameText.isEmpty && !gridText.isEmpty {
-            return "To: \(callsign) \(nameText) (\(gridText))"
-        } else if !nameText.isEmpty {
-            return "To: \(callsign) \(nameText)"
-        } else if !gridText.isEmpty {
-            return "To: \(callsign) (\(gridText))"
-        } else {
-            return "To: \(callsign)"
+        var parts: [String] = ["To: \(callsign)"]
+        if !nameText.isEmpty {
+            parts.append(nameText)
         }
+        if !gridText.isEmpty {
+            parts.append(gridText)
+        }
+        
+        return parts.joined(separator: " ")
     }
     
     private func checkCredentialsAndShowLogin() {
@@ -678,13 +678,6 @@ struct ChatMessageRow: View {
                 .font(.body)
                 .background(shouldHighlightGreen ? Color.green.opacity(0.3) : (shouldHighlight ? Color.yellow.opacity(0.3) : Color.clear))
                 .frame(maxWidth: .infinity, alignment: .leading)
-            
-            // Grid info if available
-            if !message.grid.getGrid().isEmpty {
-                Text("Grid: \(message.grid.getGrid())")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
         }
         .padding(.vertical, 2)
     }
