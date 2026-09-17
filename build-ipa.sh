@@ -122,6 +122,7 @@ xcodebuild -project "$PROJECT" \
   -scheme "$SCHEME" \
   -configuration Release \
   -archivePath "$ARCHIVE_PATH" \
+  -allowProvisioningUpdates \
   archive
 
 if [ $? -ne 0 ]; then
@@ -137,6 +138,7 @@ echo "📤 Exporting IPA..."
 xcodebuild -exportArchive \
   -archivePath "$ARCHIVE_PATH" \
   -exportPath "$EXPORT_PATH" \
+  -allowProvisioningUpdates \
   -exportOptionsPlist "$EXPORT_OPTIONS"
 
 if [ $? -ne 0 ]; then
