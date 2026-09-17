@@ -609,7 +609,10 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
            let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
            match.numberOfRanges >= 4 {
             
-            let callsign = String(line[Range(match.range(at: 1), in: line)!]).replacingOccurrences(of: "(", with: "").replacingOccurrences(of: ")", with: "")
+            let rawCallsign = String(line[Range(match.range(at: 1), in: line)!]).replacingOccurrences(of: "(", with: "").replacingOccurrences(of: ")", with: "")
+            // Extract just the callsign (e.g. from "VA3IKE Ike") to prevent duplicates
+            let callsign = rawCallsign.components(separatedBy: .whitespaces).first ?? rawCallsign
+            
             let gridString = String(line[Range(match.range(at: 2), in: line)!])
             let stationComment = String(line[Range(match.range(at: 3), in: line)!])
             
@@ -723,15 +726,24 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         }
         
         var newUsersList: [KSTUsersInfo] = []
+        var seenCallsigns = Set<String>()
         
         for record in buffer {
             if let regex = try? NSRegularExpression(pattern: recordPattern),
                let match = regex.firstMatch(in: record, range: NSRange(record.startIndex..., in: record)),
                match.numberOfRanges >= 4 {
                 
-                let callsign = String(record[Range(match.range(at: 1), in: record)!]).replacingOccurrences(of: "(", with: "").replacingOccurrences(of: ")", with: "")
+                let rawCallsign = String(record[Range(match.range(at: 1), in: record)!]).replacingOccurrences(of: "(", with: "").replacingOccurrences(of: ")", with: "")
+                // Extract just the callsign (e.g. from "VA3IKE Ike") to prevent duplicates
+                let callsign = rawCallsign.components(separatedBy: .whitespaces).first ?? rawCallsign
+                
                 let gridString = String(record[Range(match.range(at: 2), in: record)!])
                 let stationComment = String(record[Range(match.range(at: 3), in: record)!])
+                
+                if seenCallsigns.contains(callsign) {
+                    continue
+                }
+                seenCallsigns.insert(callsign)
                 
                 debugPrint("Parsed user: callsign='\(callsign)', grid='\(gridString)', comment='\(stationComment)'")
                 
