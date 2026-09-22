@@ -295,7 +295,17 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         let host = NWEndpoint.Host(KSTChatManager.hostname)
         let port = NWEndpoint.Port(integerLiteral: KSTChatManager.port)
         
-        tcpConnection = NWConnection(host: host, port: port, using: .tcp)
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.enableKeepalive = true
+        tcpOptions.keepaliveIdle = 30
+        tcpOptions.keepaliveInterval = 10
+        tcpOptions.keepaliveCount = 3
+        
+        let params = NWParameters(tls: nil, tcp: tcpOptions)
+        params.allowFastOpen = true
+        params.serviceClass = .responsiveData
+        
+        tcpConnection = NWConnection(host: host, port: port, using: params)
         
         tcpConnection?.stateUpdateHandler = { [weak self] state in
             self?.debugPrint("Connection state changed: \(state)")
@@ -306,6 +316,12 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                     self?.isConnected = true
                     self?.setupKeepAlive()
                     self?.sendLoginCommand()
+                case .waiting(let error):
+                    self?.debugPrint("Connection waiting: \(error)")
+                    self?.isConnected = false
+                    if self?.isNetworkAvailable == true {
+                        self?.onReconnectionFailure(error: error)
+                    }
                 case .failed(let error):
                     self?.debugPrint("Connection failed: \(error)")
                     self?.isConnected = false
@@ -331,8 +347,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     }
     
     private func setupKeepAlive() {
-        // Note: iOS doesn't allow direct socket manipulation like in the C++ version
-        // The system will handle keep-alive automatically
+        // TCP keep-alive configured in NWParameters
     }
     
     private func startReceiving() {
@@ -344,12 +359,17 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             
             if let error = error {
                 self?.debugPrint("Receive error: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self?.disconnectChat(manual: false)
+                }
                 return
             }
             
             if isComplete {
-                self?.debugPrint("Connection completed")
-                self?.disconnectChat()
+                self?.debugPrint("Connection completed by remote host")
+                DispatchQueue.main.async {
+                    self?.disconnectChat(manual: false)
+                }
                 return
             }
             
@@ -863,8 +883,9 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         reconnectAttempts += 1
         debugPrint("Starting automatic reconnection attempt \(reconnectAttempts) in \(reconnectDelay) seconds")
         
-        // Schedule reconnection with exponential backoff
-        reconnectTimer = Timer.scheduledTimer(withTimeInterval: reconnectDelay, repeats: false) { [weak self] _ in
+        // Schedule reconnection with exponential backoff on common RunLoop mode so it fires during touch/scroll
+        reconnectTimer?.invalidate()
+        let timer = Timer(timeInterval: reconnectDelay, repeats: false) { [weak self] _ in
             // Check network availability again before attempting reconnection
             if self?.isNetworkAvailable == true {
                 self?.attemptReconnection()
@@ -872,6 +893,8 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 self?.debugPrint("Network unavailable, skipping scheduled reconnection")
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        reconnectTimer = timer
     }
     
     private func attemptReconnection() {
@@ -1075,15 +1098,37 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             queue: .main
         ) { _ in
             self.isAppInBackground = false
-            self.debugPrint("App returned to foreground")
+            self.debugPrint("App will enter foreground")
             self.endBackgroundTask()
-            // Reconnection check after foreground return
-            if !self.isConnected && !self.storedUsername.isEmpty {
-                self.debugPrint("Attempting reconnection after foreground return")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    self.connectChat(roomIndex: self.storedRoomIndex, username: self.storedUsername, password: self.storedPassword, gridSquare: self.storedGridSquare)
-                }
-            }
+            self.handleForegroundReturn()
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            self.isAppInBackground = false
+            self.debugPrint("App became active")
+            self.handleForegroundReturn()
+        }
+    }
+    
+    private func handleForegroundReturn() {
+        guard !storedUsername.isEmpty else { return }
+        
+        // If the socket was disconnected or cancelled while suspended, reconnect immediately!
+        if !isConnected || tcpConnection == nil {
+            debugPrint("Reconnecting immediately on foreground return")
+            reconnectTimer?.invalidate()
+            reconnectTimer = nil
+            connectChat(roomIndex: storedRoomIndex, username: storedUsername, password: storedPassword, gridSquare: storedGridSquare)
+        } else {
+            // Send a ping/heartbeat to verify the existing connection is actually alive.
+            // If iOS severed the socket silently while locked, sending this will immediately trigger
+            // the failure handler and start instant reconnection!
+            debugPrint("Verifying connection on foreground return")
+            sendCommand(.none, "")
         }
     }
     
