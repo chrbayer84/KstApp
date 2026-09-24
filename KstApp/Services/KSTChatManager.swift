@@ -295,17 +295,13 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         let host = NWEndpoint.Host(KSTChatManager.hostname)
         let port = NWEndpoint.Port(integerLiteral: KSTChatManager.port)
         
-        let tcpOptions = NWProtocolTCP.Options()
-        tcpOptions.enableKeepalive = true
-        tcpOptions.keepaliveIdle = 30
-        tcpOptions.keepaliveInterval = 10
-        tcpOptions.keepaliveCount = 3
+        // Clean up any existing connection
+        tcpConnection?.stateUpdateHandler = nil
+        tcpConnection?.cancel()
+        tcpConnection = nil
         
-        let params = NWParameters(tls: nil, tcp: tcpOptions)
-        params.allowFastOpen = true
-        params.serviceClass = .responsiveData
-        
-        tcpConnection = NWConnection(host: host, port: port, using: params)
+        // Use standard TCP
+        tcpConnection = NWConnection(host: host, port: port, using: .tcp)
         
         tcpConnection?.stateUpdateHandler = { [weak self] state in
             self?.debugPrint("Connection state changed: \(state)")
@@ -314,7 +310,6 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 case .ready:
                     self?.debugPrint("Connected to KST server")
                     self?.isConnected = true
-                    self?.setupKeepAlive()
                     self?.sendLoginCommand()
                 case .waiting(let error):
                     self?.debugPrint("Connection waiting: \(error)")
@@ -347,7 +342,6 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     }
     
     private func setupKeepAlive() {
-        // TCP keep-alive configured in NWParameters
     }
     
     private func startReceiving() {
@@ -360,7 +354,9 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             if let error = error {
                 self?.debugPrint("Receive error: \(error.localizedDescription)")
                 DispatchQueue.main.async {
-                    self?.disconnectChat(manual: false)
+                    if self?.isConnected == true {
+                        self?.disconnectChat(manual: false)
+                    }
                 }
                 return
             }
@@ -368,7 +364,9 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             if isComplete {
                 self?.debugPrint("Connection completed by remote host")
                 DispatchQueue.main.async {
-                    self?.disconnectChat(manual: false)
+                    if self?.isConnected == true {
+                        self?.disconnectChat(manual: false)
+                    }
                 }
                 return
             }
@@ -1271,6 +1269,11 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         if currentRoomIndex <= 0 {
             currentRoomIndex = 1 // Default to first room
         }
+        
+        storedUsername = username
+        storedPassword = password
+        storedGridSquare = myGridSquare
+        storedRoomIndex = currentRoomIndex
         // Note: In a production app, password should be stored in Keychain
     }
     

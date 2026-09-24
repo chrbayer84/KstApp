@@ -182,12 +182,17 @@ struct KSTChatView: View {
                         .controlSize(.small)
                     } else {
                         Button("Connect") {
-                            if !chatManager.storedUsername.isEmpty && !chatManager.storedPassword.isEmpty {
+                            let u = !chatManager.storedUsername.isEmpty ? chatManager.storedUsername : UserDefaults.standard.string(forKey: "KSTUsername") ?? ""
+                            let p = !chatManager.storedPassword.isEmpty ? chatManager.storedPassword : UserDefaults.standard.string(forKey: "KSTPassword") ?? ""
+                            let r = chatManager.storedRoomIndex > 0 ? chatManager.storedRoomIndex : max(1, UserDefaults.standard.integer(forKey: "KSTRoomIndex"))
+                            let g = !chatManager.storedGridSquare.isEmpty ? chatManager.storedGridSquare : UserDefaults.standard.string(forKey: "KSTGridSquare") ?? ""
+                            
+                            if !u.isEmpty && !p.isEmpty {
                                 chatManager.connectChat(
-                                    roomIndex: chatManager.storedRoomIndex,
-                                    username: chatManager.storedUsername,
-                                    password: chatManager.storedPassword,
-                                    gridSquare: chatManager.storedGridSquare
+                                    roomIndex: r,
+                                    username: u,
+                                    password: p,
+                                    gridSquare: g
                                 )
                             } else {
                                 showingLogin = true
