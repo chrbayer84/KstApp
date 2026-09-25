@@ -476,16 +476,9 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     private func processChatLine(_ line: String) {
         debugPrint("Processing line: \(line)")
         
-        let chatName = KSTChatManager.chatRooms[currentRoomIndex - 1]
-        let chatCMDEndPattern = "([0-9]{4})Z \(username.uppercased()) \(NSRegularExpression.escapedPattern(for: chatName)) chat>(.*)"
+        let isCommandEnd = line.contains("chat>")
         
-        debugPrint("Checking if line matches command end pattern: '\(line)'")
-        debugPrint("Pattern: \(chatCMDEndPattern)")
-        
-        if let regex = try? NSRegularExpression(pattern: chatCMDEndPattern),
-           let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
-           match.range.location != NSNotFound {
-            
+        if isCommandEnd {
             debugPrint("Command end detected for command: \(currentCommand)")
             
             // Command end detected - only add to chat messages for certain commands
@@ -498,7 +491,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 onReconnectionSuccess() // Handle reconnection success
                 sendSetGridCommand()
                 sendShowUsersCommand()
-                // sendShowMessagesCommand() // DISABLED: Historic message loading
+                sendShowMessagesCommand()
                 
                 // Add login completion message to chat only if there's content
                 let messageContent = commandLineBuffer.joined(separator: "\n")
@@ -823,18 +816,18 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         
         // Re-sort the entire message list to ensure chronological order after merging
         DispatchQueue.main.async {
-            let existingSet = Set(self.chatMessages)
-            let uniqueNewMessages = newMessages.filter { !existingSet.contains($0) }
-            
             // Note: The ON4KST server sends /show msg history with the NEWEST messages FIRST.
             // Example:
             // 1. 1205Z SENDER>Hello
             // 2. 1204Z SENDER>Test
-            // We need to reverse this block so it is chronological (oldest to newest)
-            let chronologicalNewMessages = Array(uniqueNewMessages.reversed())
+            // We reverse this block so it is chronological (oldest to newest)
+            let chronologicalNewMessages = Array(newMessages.reversed())
             
-            // We prepend the historical messages so they appear *before* any live messages
-            self.chatMessages.insert(contentsOf: chronologicalNewMessages, at: 0)
+            let existingSet = Set(self.chatMessages)
+            let uniqueNewMessages = chronologicalNewMessages.filter { !existingSet.contains($0) }
+            
+            // Append the unique new messages to the chat (so any messages sent while phone was locked go to the bottom)
+            self.chatMessages.append(contentsOf: uniqueNewMessages)
             
             // Update lastMessageCount to prevent notifications for historical messages
             self.lastMessageCount = self.chatMessages.count
@@ -1115,6 +1108,8 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     private func handleForegroundReturn() {
         guard !storedUsername.isEmpty else { return }
         
+        debugPrint("handleForegroundReturn: isConnected=\(isConnected)")
+        
         // If the socket was disconnected or cancelled while suspended, reconnect immediately!
         if !isConnected || tcpConnection == nil {
             debugPrint("Reconnecting immediately on foreground return")
@@ -1122,11 +1117,10 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
             reconnectTimer = nil
             connectChat(roomIndex: storedRoomIndex, username: storedUsername, password: storedPassword, gridSquare: storedGridSquare)
         } else {
-            // Send a ping/heartbeat to verify the existing connection is actually alive.
-            // If iOS severed the socket silently while locked, sending this will immediately trigger
-            // the failure handler and start instant reconnection!
-            debugPrint("Verifying connection on foreground return")
-            sendCommand(.none, "")
+            // If already connected, fetch any messages and user updates that occurred while in background
+            debugPrint("Foreground return: refreshing users and messages")
+            sendShowUsersCommand()
+            sendShowMessagesCommand()
         }
     }
     
