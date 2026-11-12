@@ -101,6 +101,12 @@ Run the ipa export script:
 
 
 
+## Privacy
+
+KstApp stores your ON4KST credentials on your device, with the password kept in
+the iOS Keychain. The developer operates no server and collects no data. See the
+[Privacy Policy](https://chrbayer84.github.io/KstApp/PRIVACY.html) for details.
+
 ## License
 
 GPL v3
