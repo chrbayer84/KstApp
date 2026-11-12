@@ -1,4 +1,5 @@
 import SwiftUI
+import SafariServices
 
 // Placeholder ViewModifier for TextField
 extension View {
@@ -19,6 +20,9 @@ struct ChatHighlightRulesView: View {
     @StateObject private var chatManager = KSTChatManager.shared
     @State private var showingAddRule = false
     @State private var editingRule: ChatHighlightRule?
+    @State private var showingPrivacyPolicy = false
+
+    private let privacyPolicyURL = URL(string: "https://chrbayer84.github.io/KstApp/PRIVACY.html")!
     
     var body: some View {
         NavigationStack {
@@ -70,6 +74,22 @@ struct ChatHighlightRulesView: View {
                     }
                 }
                 
+                // About Section
+                Section("About") {
+                    Button {
+                        showingPrivacyPolicy = true
+                    } label: {
+                        HStack {
+                            Text("Privacy Policy")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                
                 // Highlight Rules Section
                 Section("Highlight Rules") {
                     ForEach(ruleManager.rules, id: \.ruleName) { rule in
@@ -98,6 +118,10 @@ struct ChatHighlightRulesView: View {
                 RuleEditView(rule: rule) { updatedRule in
                     ruleManager.updateRule(updatedRule)
                 }
+            }
+            .sheet(isPresented: $showingPrivacyPolicy) {
+                SafariView(url: privacyPolicyURL)
+                    .ignoresSafeArea()
             }
         }
     }
@@ -336,6 +360,19 @@ struct ConditionRow: View {
         .background(Color(.systemGray6))
         .cornerRadius(8)
     }
+}
+
+// MARK: - Safari View
+struct SafariView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let controller = SFSafariViewController(url: url)
+        controller.preferredControlTintColor = .systemBlue
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }
 
 // MARK: - Preview
