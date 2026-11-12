@@ -183,7 +183,7 @@ struct KSTChatView: View {
                     } else {
                         Button("Connect") {
                             let u = !chatManager.storedUsername.isEmpty ? chatManager.storedUsername : UserDefaults.standard.string(forKey: "KSTUsername") ?? ""
-                            let p = !chatManager.storedPassword.isEmpty ? chatManager.storedPassword : UserDefaults.standard.string(forKey: "KSTPassword") ?? ""
+                            let p = !chatManager.storedPassword.isEmpty ? chatManager.storedPassword : chatManager.storedPasswordFromKeychain()
                             let r = chatManager.storedRoomIndex > 0 ? chatManager.storedRoomIndex : max(1, UserDefaults.standard.integer(forKey: "KSTRoomIndex"))
                             let g = !chatManager.storedGridSquare.isEmpty ? chatManager.storedGridSquare : UserDefaults.standard.string(forKey: "KSTGridSquare") ?? ""
                             
@@ -571,7 +571,7 @@ struct KSTChatView: View {
     private func checkCredentialsAndShowLogin() {
         // Check if we have stored credentials
         let storedUsername = UserDefaults.standard.string(forKey: "KSTUsername") ?? ""
-        let storedPassword = UserDefaults.standard.string(forKey: "KSTPassword") ?? ""
+        let storedPassword = chatManager.storedPasswordFromKeychain()
         let storedRoomIndex = UserDefaults.standard.integer(forKey: "KSTRoomIndex")
         let storedGridSquare = UserDefaults.standard.string(forKey: "KSTGridSquare") ?? ""
         

@@ -112,7 +112,7 @@ BackendService.shared.syncUserSettings(
 | `KSTPushoverUserKey` | Pushover user key |
 | `KSTDeviceToken` | APNs device token |
 | `KSTUsername` | ON4KST username |
-| `KSTPassword` | ON4KST password |
+| `KSTPassword` | ON4KST password (stored in the iOS Keychain, not UserDefaults) |
 | `KSTRoomIndex` | Selected room (1-based) |
 | `KSTGridSquare` | Maidenhead grid square |
 

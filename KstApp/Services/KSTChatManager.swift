@@ -20,7 +20,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     private static let hostname = "www.on4kst.info"
     private static let port: UInt16 = 23000
     private static let updateUsersListInterval: TimeInterval = 30 // 30 seconds
-    private static let secureStorageKey = "KST"
+    static let passwordKeychainAccount = "KSTPassword"
     private static let debugEnabled = false // Set to true to enable debug messages
     
     // MARK: - Debug Helper
@@ -1256,7 +1256,7 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
     // MARK: - Credential Management
     func loadCredentials() {
         username = UserDefaults.standard.string(forKey: "KSTUsername") ?? ""
-        password = UserDefaults.standard.string(forKey: "KSTPassword") ?? ""
+        password = loadPassword()
         myGridSquare = UserDefaults.standard.string(forKey: "KSTGridSquare") ?? ""
         currentRoomIndex = UserDefaults.standard.integer(forKey: "KSTRoomIndex")
         
@@ -1268,15 +1268,34 @@ class KSTChatManager: NSObject, ObservableObject, UNUserNotificationCenterDelega
         storedPassword = password
         storedGridSquare = myGridSquare
         storedRoomIndex = currentRoomIndex
-        // Note: In a production app, password should be stored in Keychain
+    }
+    
+    /// Returns the ON4KST password from the Keychain, migrating any legacy
+    /// plaintext password out of UserDefaults on first launch.
+    func storedPasswordFromKeychain() -> String {
+        KeychainStore.string(for: KSTChatManager.passwordKeychainAccount) ?? ""
+    }
+    
+    private func loadPassword() -> String {
+        let keychainPassword = KeychainStore.string(for: KSTChatManager.passwordKeychainAccount)
+        let legacyPassword = UserDefaults.standard.string(forKey: "KSTPassword") ?? ""
+        
+        if !legacyPassword.isEmpty {
+            // Migrate the old plaintext password into the Keychain once.
+            if keychainPassword == nil {
+                KeychainStore.set(legacyPassword, for: KSTChatManager.passwordKeychainAccount)
+            }
+            UserDefaults.standard.removeObject(forKey: "KSTPassword")
+        }
+        
+        return storedPasswordFromKeychain()
     }
     
     private func saveCredentials(username: String, password: String, roomIndex: Int, gridSquare: String = "") {
         UserDefaults.standard.set(username, forKey: "KSTUsername")
-        UserDefaults.standard.set(password, forKey: "KSTPassword")
+        KeychainStore.set(password, for: KSTChatManager.passwordKeychainAccount)
         UserDefaults.standard.set(roomIndex, forKey: "KSTRoomIndex")
         UserDefaults.standard.set(gridSquare, forKey: "KSTGridSquare")
-        // Note: In a production app, password should be stored in Keychain
 
         // Sync settings with backend when credentials are updated
         syncSettingsWithBackend()
