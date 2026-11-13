@@ -7,7 +7,7 @@ enum KeychainStore {
 
     // MARK: - Private Properties
 
-    private static let service = "com.github.KstApp"
+    private static let service = "com.github.chrbayer84.KstApp"
 
     // MARK: - Public Methods
 

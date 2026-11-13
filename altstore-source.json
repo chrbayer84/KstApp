@@ -6,12 +6,12 @@
   "website": "https://github.com/chrbayer84/KstApp",
   "tintColor": "#6156e2",
   "featuredApps": [
-    "com.github.KstApp"
+    "com.github.chrbayer84.KstApp"
   ],
   "apps": [
     {
       "name": "KstApp",
-      "bundleIdentifier": "com.github.KstApp",
+      "bundleIdentifier": "com.github.chrbayer84.KstApp",
       "developerName": "Christian Bayer, WA4YA",
       "subtitle": "ON4KST VHF Chat client",
       "localizedDescription": "ON4KST VHF Chat client with Push-Notification support. Open Source: https://github.com/chrbayer84/KstApp",

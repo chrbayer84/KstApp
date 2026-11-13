@@ -140,7 +140,7 @@ NODE_ENV=development
 APNS_KEY_PATH=./keys/auth_key.p8
 APNS_KEY_ID=ABC123DEFG
 APNS_TEAM_ID=ABCDE12345
-APNS_BUNDLE_ID=com.example.kstapp
+APNS_BUNDLE_ID=com.github.chrbayer84.KstApp
 PUSHOVER_API_TOKEN=your_pushover_application_token_here
 PUSHOVER_DEEP_LINK_URL=kstapp://chat
 ```

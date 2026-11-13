@@ -1,7 +1,7 @@
 # Privacy Policy — KstApp
 
 **Effective date:** November 12, 2026
-**App:** KstApp (bundle identifier `com.github.KstApp`)
+**App:** KstApp (bundle identifier `com.github.chrbayer84.KstApp`)
 **Developer:** Christian Bayer, WA4YA
 **Contact:** chrbayer84@googlemail.com
 **Source code:** https://github.com/chrbayer84/KstApp
