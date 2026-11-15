@@ -88,10 +88,23 @@ You choose whether to enable notifications and whether to configure a relay
 server. The App ships with a non-functional placeholder URL; unless you replace it
 with a real relay address, no relay server receives your data.
 
-**Important:** the connection to ON4KST uses the service's plain TCP protocol and
-is **not encrypted in transit**. Your ON4KST password and chat messages therefore
-travel over the network without transport encryption. Do not reuse a sensitive
-password for ON4KST.
+### Note on ON4KST, public communications, and encryption
+
+KstApp is an independent, third-party client. The developer does **not** operate,
+control, or maintain the ON4KST website or chat server. ON4KST is a separate
+service with its own operators and policies.
+
+Amateur-radio communications are inherently public, and the ON4KST chat service
+follows that model: messages are visible to other participants and are not
+private. The service exposes a plain TCP protocol and does **not** offer an
+encrypted (TLS) connection. Because KstApp does not control the ON4KST server, it
+cannot add transport encryption to that connection or otherwise make it private.
+
+As a result, your ON4KST password and chat messages are transmitted without
+transport encryption. This is an inherent characteristic of the third-party
+service, not a choice the KstApp developers can change. Anyone using ON4KST
+through KstApp accepts this risk, which is outside the App developers' control.
+Do not reuse a sensitive password from another service for ON4KST.
 
 ## 5. Data Storage and Retention
 
