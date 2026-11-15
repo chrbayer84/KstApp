@@ -3,8 +3,12 @@ import express, { Request, Response, NextFunction } from 'express';
 import userRoutes from './routes/userRoutes';
 import NotificationService from './services/NotificationService';
 import { createLogger } from './utils/logger';
+import { assertEncryptionConfigured } from './utils/crypto';
 
 const log = createLogger('kst:app');
+
+// Fail fast if the encryption key is missing or invalid.
+assertEncryptionConfigured();
 
 // Create Express app
 const app = express();

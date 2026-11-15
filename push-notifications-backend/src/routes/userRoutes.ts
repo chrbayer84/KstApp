@@ -186,17 +186,16 @@ router.get('/:username', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Username parameter is required' });
     }
     
-    const settings = await UserSettingsService.getSettings(usernameParam);
+    const settings = await UserSettingsService.getSafeSettings(usernameParam);
     
     if (!settings) {
       return res.status(404).json({ error: `User settings not found for ${usernameParam}` });
     }
     
     // Return settings without sensitive information
-    const { password, pushoverUserKey, deviceToken, ...safeSettings } = settings;
     // Return with username from URL parameter to ensure consistency
     // Exclude username from spread to avoid duplication
-    const { username: _, ...safeSettingsWithoutUsername } = safeSettings;
+    const { username: _, ...safeSettingsWithoutUsername } = settings;
     res.json({
       username: usernameParam.toUpperCase(),
       ...safeSettingsWithoutUsername
@@ -243,14 +242,13 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const usernames = UserSettingsService.getAllUsernames();
     const usersPromises = usernames.map(async (username) => {
-      const settings = await UserSettingsService.getSettings(username);
+      const settings = await UserSettingsService.getSafeSettings(username);
       if (settings) {
-        const { password, pushoverUserKey, deviceToken, ...safeSettings } = settings;
         // Remove username from safeSettings to avoid duplication when we add it back
-        const { username: _, ...userSettingsWithoutUsername } = safeSettings;
+        const { username: _, ...userSettingsWithoutUsername } = settings;
         return {
           username: username,
-          ...(userSettingsWithoutUsername as Omit<UserSettings, 'password' | 'username' | 'pushoverUserKey' | 'deviceToken'>)
+          ...userSettingsWithoutUsername
         };
       }
       return null;

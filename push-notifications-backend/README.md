@@ -131,12 +131,13 @@ The application is configured via environment variables. Create a `.env` file in
 | `APNS_BUNDLE_ID` | Bundle ID of the KstApp iOS app | Yes (for APNs) |
 | `PUSHOVER_API_TOKEN` | Pushover application API token (provided by Pushover when you create an application) | Yes (for Pushover) |
 | `PUSHOVER_DEEP_LINK_URL` | Optional URL to open when a Pushover notification is tapped (e.g., `kstapp://chat`) | No |
-| `ENCRYPTION_KEY` | For encrypting sensitive data at rest (if using persistent storage) | No |
+| `ENCRYPTION_KEY` | 32-byte key used to encrypt ON4KST passwords, Pushover user keys, and APNs device tokens (64 hex chars or base64). The service refuses to start without it. Generate with `openssl rand -hex 32`. | Yes |
 
 Example `.env` file:
 ```
 PORT=3000
 NODE_ENV=development
+ENCRYPTION_KEY=replace_with_output_of_openssl_rand_hex_32
 APNS_KEY_PATH=./keys/auth_key.p8
 APNS_KEY_ID=ABC123DEFG
 APNS_TEAM_ID=ABCDE12345
@@ -379,7 +380,7 @@ For detailed architectural diagrams and design decisions, refer to [DESIGN.md](.
 ## Security Considerations
 
 1. **Transport Security**: Always use HTTPS in production to protect credentials and settings
-2. **Data Protection**: sensitive data (passwords, device tokens) should be encrypted at rest
+2. **Data Protection**: ON4KST passwords, Pushover user keys, and APNs device tokens are encrypted with AES-256-GCM before being placed in the settings store. The key comes from `ENCRYPTION_KEY`; keep it out of source control and back it up securely.
 3. **Access Control**: Consider adding authentication to the API in multi-tenant environments
 4. **Rate Limiting**: Implement rate limiting on the settings endpoint to prevent abuse
 5. **Input Validation**: All inputs are validated to prevent injection attacks

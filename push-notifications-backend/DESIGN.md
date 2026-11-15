@@ -267,7 +267,7 @@ Same as above, but:
 The backend is configured via environment variables or a configuration file:
 - `PORT`: HTTP server port (default: 3000)
 - `NODE_ENV`: development or production
-- `ENCRYPTION_KEY`: For encrypting sensitive data at rest (if using persistent storage)
+- `ENCRYPTION_KEY`: 32-byte key (64 hex chars or base64) used to encrypt sensitive settings fields with AES-256-GCM; required at startup
 - `APNS_KEY_PATH`: Path to APNs private key (if using APNs)
 - `APNS_KEY_ID`: APNs key ID
 - `APNS_TEAM_ID`: Apple Team ID
