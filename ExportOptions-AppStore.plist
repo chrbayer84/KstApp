@@ -4,14 +4,18 @@
 <dict>
 	<key>method</key>
 	<string>app-store-connect</string>
+	<key>destination</key>
+	<string>export</string>
 	<key>signingStyle</key>
 	<string>manual</string>
+	<key>signingCertificate</key>
+	<string>iPhone Distribution</string>
 	<key>teamID</key>
 	<string>VRRTAP3C2B</string>
 	<key>provisioningProfiles</key>
 	<dict>
 		<key>com.github.chrbayer84.KstApp</key>
-		<string>7c3bf986-b3c5-4d16-903b-d90caa95024e</string>
+		<string>Kst App Apple Store</string>
 	</dict>
 	<key>uploadSymbols</key>
 	<true/>
