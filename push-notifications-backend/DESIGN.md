@@ -272,6 +272,7 @@ The backend is configured via environment variables or a configuration file:
 - `APNS_KEY_ID`: APNs key ID
 - `APNS_TEAM_ID`: Apple Team ID
 - `APNS_BUNDLE_ID`: Bundle ID of the iOS app (should match KstApp's bundle ID)
+- `APNS_PRODUCTION`: `true` for App Store/TestFlight, `false` for sandbox/development
 - `PUSHOVER_API_TOKEN`: Pushover application API token (if using Pushover)
 - `LOG_LEVEL`: debug, info, warn, error
 

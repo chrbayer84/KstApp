@@ -13,7 +13,8 @@ class ApnsService {
   constructor(private readonly apnsKeyPath: string, 
               private readonly apnsKeyId: string, 
               private readonly apnsTeamId: string,
-              bundleId: string) {
+              bundleId: string,
+              private readonly production: boolean = false) {
     this.bundleId = bundleId;
     this.initializeProvider();
   }
@@ -29,10 +30,10 @@ class ApnsService {
           keyId: this.apnsKeyId,
           teamId: this.apnsTeamId
         },
-        production: false // Set to true for production
+        production: this.production
       });
       
-      log.info('APNs provider initialized');
+      log.info(`APNs provider initialized (${this.production ? 'production' : 'sandbox'} environment)`);
     } catch (error) {
       log.error('Failed to initialize APNs provider:', error);
       this.provider = null;

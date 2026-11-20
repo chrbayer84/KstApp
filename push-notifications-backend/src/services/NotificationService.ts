@@ -36,11 +36,12 @@ class NotificationService {
     const keyId = process.env.APNS_KEY_ID;
     const teamId = process.env.APNS_TEAM_ID;
     const bundleId = process.env.APNS_BUNDLE_ID;
+    const production = process.env.APNS_PRODUCTION === 'true';
 
     if (keyPath && keyId && teamId && bundleId) {
       try {
-        this.apnsService = new ApnsService(keyPath, keyId, teamId, bundleId);
-        log.info('APNs service initialized');
+        this.apnsService = new ApnsService(keyPath, keyId, teamId, bundleId, production);
+        log.info(`APNs service initialized (${production ? 'production' : 'sandbox'} environment)`);
       } catch (error) {
         log.error('Failed to initialize APNs service:', error);
       }

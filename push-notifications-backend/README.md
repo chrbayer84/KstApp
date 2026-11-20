@@ -129,6 +129,7 @@ The application is configured via environment variables. Create a `.env` file in
 | `APNS_KEY_ID` | APNs key ID | Yes (for APNs) |
 | `APNS_TEAM_ID` | Apple Team ID | Yes (for APNs) |
 | `APNS_BUNDLE_ID` | Bundle ID of the KstApp iOS app | Yes (for APNs) |
+| `APNS_PRODUCTION` | `true` for App Store/TestFlight builds, `false` (default) for development/sandbox builds. Must match the device token's environment. | No |
 | `PUSHOVER_API_TOKEN` | Pushover application API token (provided by Pushover when you create an application) | Yes (for Pushover) |
 | `PUSHOVER_DEEP_LINK_URL` | Optional URL to open when a Pushover notification is tapped (e.g., `kstapp://chat`) | No |
 | `ENCRYPTION_KEY` | 32-byte key used to encrypt ON4KST passwords, Pushover user keys, and APNs device tokens (64 hex chars or base64). The service refuses to start without it. Generate with `openssl rand -hex 32`. | Yes |
@@ -142,6 +143,7 @@ APNS_KEY_PATH=./keys/auth_key.p8
 APNS_KEY_ID=ABC123DEFG
 APNS_TEAM_ID=ABCDE12345
 APNS_BUNDLE_ID=com.github.chrbayer84.KstApp
+APNS_PRODUCTION=false
 PUSHOVER_API_TOKEN=your_pushover_application_token_here
 PUSHOVER_DEEP_LINK_URL=kstapp://chat
 ```
