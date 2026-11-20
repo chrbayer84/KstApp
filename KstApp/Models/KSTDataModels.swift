@@ -334,25 +334,6 @@ class ChatHighlightEvaluator: ObservableObject {
                 ruleValid: true
             ),
             ChatHighlightRule(
-                ruleName: "Emergency",
-                enabled: true,
-                ruleRoomIndex: 0, // All rooms
-                interConditionOperand: .or,
-                conditions: [
-                    ChatHighlightRule.Condition(
-                        source: .message,
-                        operatorID: .contains,
-                        value: "EMERGENCY"
-                    ),
-                    ChatHighlightRule.Condition(
-                        source: .message,
-                        operatorID: .contains,
-                        value: "HELP"
-                    )
-                ],
-                ruleValid: true
-            ),
-            ChatHighlightRule(
                 ruleName: "Local Grid",
                 enabled: true,
                 ruleRoomIndex: roomIndex,
@@ -499,7 +480,12 @@ class ChatHighlightRuleManager: ObservableObject {
         // Load from UserDefaults for now
         if let data = UserDefaults.standard.data(forKey: "ChatHighlightRules"),
            let decodedRules = try? JSONDecoder().decode([ChatHighlightRule].self, from: data) {
-            rules = decodedRules
+            // Remove the retired default "Emergency" rule from existing installs.
+            let filteredRules = decodedRules.filter { $0.ruleName != "Emergency" }
+            rules = filteredRules
+            if filteredRules.count != decodedRules.count {
+                saveRules()
+            }
         } else {
             // Create default rules
             createDefaultRules()
@@ -527,25 +513,6 @@ class ChatHighlightRuleManager: ObservableObject {
                         source: .sender,
                         operatorID: .contains,
                         value: callsign
-                    )
-                ],
-                ruleValid: true
-            ),
-            ChatHighlightRule(
-                ruleName: "Emergency",
-                enabled: true,
-                ruleRoomIndex: 0, // All rooms
-                interConditionOperand: .or,
-                conditions: [
-                    ChatHighlightRule.Condition(
-                        source: .message,
-                        operatorID: .contains,
-                        value: "EMERGENCY"
-                    ),
-                    ChatHighlightRule.Condition(
-                        source: .message,
-                        operatorID: .contains,
-                        value: "HELP"
                     )
                 ],
                 ruleValid: true
