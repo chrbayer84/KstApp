@@ -1,35 +1,28 @@
 import SwiftUI
 import SafariServices
 
-// Placeholder ViewModifier for TextField
-extension View {
-    func placeholder<Content: View>(
-        when shouldShow: Bool,
-        alignment: Alignment = .leading,
-        @ViewBuilder placeholder: () -> Content) -> some View {
-
-        ZStack(alignment: alignment) {
-            placeholder().opacity(shouldShow ? 1 : 0)
-            self
-        }
-    }
-}
-
 struct ChatHighlightRulesView: View {
     @StateObject private var ruleManager = ChatHighlightRuleManager()
     @StateObject private var chatManager = KSTChatManager.shared
     @State private var showingAddRule = false
     @State private var editingRule: ChatHighlightRule?
     @State private var showingPrivacyPolicy = false
-    @FocusState private var isEditingField: Bool
+    @AppStorage("KSTBackendURL") private var storedBackendURL: String = ""
 
     private let privacyPolicyURL = URL(string: "https://chrbayer84.github.io/KstApp/PRIVACY.html")!
-    
+
+    private var backendStatusText: String {
+        guard !storedBackendURL.isEmpty,
+              storedBackendURL != "https://your-backend.example.com" else {
+            return "Not configured"
+        }
+        return URL(string: storedBackendURL)?.host ?? storedBackendURL
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                // Push Notification Settings Section
-                Section("Push Notifications") {
+                Section {
                     Toggle("Enable Notifications", isOn: $chatManager.notificationsEnabled)
 
                     Picker("Notification Filter", selection: $chatManager.notificationFilter) {
@@ -38,46 +31,44 @@ struct ChatHighlightRulesView: View {
                         }
                     }
                     .pickerStyle(SegmentedPickerStyle())
+                } header: {
+                    Text("Push Notifications")
+                } footer: {
+                    Text("Requires a configured backend. Leave the Pushover key empty to use APNs.")
+                }
 
-                    // Backend URL
-                    Section("Backend Configuration") {
-                        TextField("Backend URL", text: Binding(
-                            get: {
-                                UserDefaults.standard.string(forKey: "KSTBackendURL") ?? ""
-                            },
-                            set: { newValue in
-                                UserDefaults.standard.set(newValue, forKey: "KSTBackendURL")
-                                // Trigger a sync when URL changes
-                                KSTChatManager.shared.syncSettingsWithBackend()
-                            }
-                        ))
-                        .keyboardType(.URL)
-                        .autocapitalization(.none)
-                        .focused($isEditingField)
-                        .placeholder(when: (UserDefaults.standard.string(forKey: "KSTBackendURL") ?? "").isEmpty) {
-                            Text("https://your-backend.example.com").foregroundColor(.gray)
-                        }
-
-                        // Pushover User Key (only show if using Pushover or if we want to always show it)
-                        // For simplicity, we'll always show it but note it's only used for Pushover
-                        SecureField("", text: Binding(
-                            get: {
-                                UserDefaults.standard.string(forKey: "KSTPushoverUserKey") ?? ""
-                            },
-                            set: { newValue in
-                                UserDefaults.standard.set(newValue, forKey: "KSTPushoverUserKey")
-                                // Trigger a sync when key changes
-                                KSTChatManager.shared.syncSettingsWithBackend()
-                            }
-                        ))
-                        .focused($isEditingField)
-                        .placeholder(when: (UserDefaults.standard.string(forKey: "KSTPushoverUserKey") ?? "").isEmpty) {
-                            Text("Pushover User Key").foregroundColor(.gray)
+                Section("Notification Delivery") {
+                    NavigationLink {
+                        BackendConfigurationView()
+                    } label: {
+                        HStack {
+                            Text("Backend Configuration")
+                            Spacer()
+                            Text(backendStatusText)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                         }
                     }
                 }
-                
-                // About Section
+
+                Section {
+                    ForEach(ruleManager.rules, id: \.ruleName) { rule in
+                        RuleRow(rule: rule) {
+                            editingRule = rule
+                        }
+                    }
+                    .onDelete(perform: deleteRules)
+
+                    Button {
+                        showingAddRule = true
+                    } label: {
+                        Label("Add Rule", systemImage: "plus.circle.fill")
+                    }
+                } header: {
+                    Text("Highlight Rules")
+                }
+
                 Section("About") {
                     Button {
                         showingPrivacyPolicy = true
@@ -92,33 +83,10 @@ struct ChatHighlightRulesView: View {
                         }
                     }
                 }
-                
-                // Highlight Rules Section
-                Section("Highlight Rules") {
-                    ForEach(ruleManager.rules, id: \.ruleName) { rule in
-                        RuleRow(rule: rule) {
-                            editingRule = rule
-                        }
-                    }
-                    .onDelete(perform: deleteRules)
-                }
             }
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Add Rule") {
-                        showingAddRule = true
-                    }
-                }
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") {
-                        isEditingField = false
-                    }
-                }
-            }
             .sheet(isPresented: $showingAddRule) {
                 RuleEditView(rule: nil) { newRule in
                     ruleManager.addRule(newRule)
@@ -135,11 +103,181 @@ struct ChatHighlightRulesView: View {
             }
         }
     }
-    
+
     private func deleteRules(offsets: IndexSet) {
         for index in offsets {
             let rule = ruleManager.rules[index]
             ruleManager.removeRule(named: rule.ruleName)
+        }
+    }
+}
+
+// MARK: - Backend Configuration View
+struct BackendConfigurationView: View {
+    private enum Field: Hashable {
+        case backendURL
+        case pushoverKey
+    }
+
+    private enum TestStatus {
+        case testing
+        case success
+        case failure(String)
+    }
+
+    @State private var backendURL: String
+    @State private var pushoverUserKey: String
+    @State private var testStatus: TestStatus?
+    @FocusState private var focusedField: Field?
+
+    private static let placeholderBackendURL = "https://your-backend.example.com"
+
+    init() {
+        let storedBackendURL = UserDefaults.standard.string(forKey: "KSTBackendURL") ?? ""
+        let initialBackendURL = storedBackendURL == Self.placeholderBackendURL ? "" : storedBackendURL
+        _backendURL = State(initialValue: initialBackendURL)
+        _pushoverUserKey = State(initialValue: UserDefaults.standard.string(forKey: "KSTPushoverUserKey") ?? "")
+    }
+
+    private var trimmedBackendURL: String {
+        backendURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isBackendURLValid: Bool {
+        Self.isValidBackendURL(trimmedBackendURL)
+    }
+
+    private var isTesting: Bool {
+        if case .testing? = testStatus {
+            return true
+        }
+        return false
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("https://your-backend.example.com", text: $backendURL)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: .backendURL)
+
+                SecureField("Pushover User Key", text: $pushoverUserKey)
+                    .focused($focusedField, equals: .pushoverKey)
+            } header: {
+                Text("Backend")
+            } footer: {
+                if !trimmedBackendURL.isEmpty && !isBackendURLValid {
+                    Text("Enter a valid http:// or https:// URL.")
+                        .foregroundColor(.red)
+                } else {
+                    Text("Leave the backend URL empty if you do not use a push relay. The Pushover key is optional; leave it blank to use APNs.")
+                }
+            }
+
+            Section("Test") {
+                Button {
+                    testConnection()
+                } label: {
+                    HStack {
+                        Text("Test Connection")
+                        Spacer()
+                        if isTesting {
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(trimmedBackendURL.isEmpty || !isBackendURLValid || isTesting)
+
+                if let testStatus {
+                    statusView(testStatus)
+                }
+            }
+
+            Section {
+                Text("Settings are saved automatically and synced with the backend after you leave this screen.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .navigationTitle("Backend Configuration")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    focusedField = nil
+                }
+            }
+        }
+        .onChange(of: backendURL) { _, newValue in
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty || Self.isValidBackendURL(trimmed) {
+                UserDefaults.standard.set(trimmed, forKey: "KSTBackendURL")
+            }
+            testStatus = nil
+        }
+        .onChange(of: pushoverUserKey) { _, newValue in
+            UserDefaults.standard.set(newValue, forKey: "KSTPushoverUserKey")
+        }
+        .onDisappear {
+            if trimmedBackendURL.isEmpty || isBackendURLValid {
+                UserDefaults.standard.set(trimmedBackendURL, forKey: "KSTBackendURL")
+            }
+            KSTChatManager.shared.syncSettingsWithBackend()
+        }
+    }
+
+    private static func isValidBackendURL(_ value: String) -> Bool {
+        guard !value.isEmpty,
+              let url = URL(string: value),
+              let scheme = url.scheme?.lowercased(),
+              (scheme == "https" || scheme == "http"),
+              let host = url.host,
+              !host.isEmpty else {
+            return false
+        }
+        return true
+    }
+
+    private func testConnection() {
+        guard let url = URL(string: trimmedBackendURL)?.appendingPathComponent("health") else {
+            return
+        }
+
+        testStatus = .testing
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+
+        URLSession.shared.dataTask(with: request) { _, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    testStatus = .failure(error.localizedDescription)
+                } else if let httpResponse = response as? HTTPURLResponse,
+                          (200...299).contains(httpResponse.statusCode) {
+                    testStatus = .success
+                } else {
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    testStatus = .failure("HTTP \(statusCode)")
+                }
+            }
+        }.resume()
+    }
+
+    @ViewBuilder
+    private func statusView(_ status: TestStatus) -> some View {
+        switch status {
+        case .testing:
+            Text("Testing...")
+                .foregroundColor(.secondary)
+        case .success:
+            Label("Backend reachable", systemImage: "checkmark.circle.fill")
+                .foregroundColor(.green)
+        case .failure(let message):
+            Label(message, systemImage: "xmark.octagon.fill")
+                .foregroundColor(.red)
         }
     }
 }
