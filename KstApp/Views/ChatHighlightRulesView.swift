@@ -21,6 +21,7 @@ struct ChatHighlightRulesView: View {
     @State private var showingAddRule = false
     @State private var editingRule: ChatHighlightRule?
     @State private var showingPrivacyPolicy = false
+    @FocusState private var isEditingField: Bool
 
     private let privacyPolicyURL = URL(string: "https://chrbayer84.github.io/KstApp/PRIVACY.html")!
     
@@ -52,6 +53,7 @@ struct ChatHighlightRulesView: View {
                         ))
                         .keyboardType(.URL)
                         .autocapitalization(.none)
+                        .focused($isEditingField)
                         .placeholder(when: (UserDefaults.standard.string(forKey: "KSTBackendURL") ?? "").isEmpty) {
                             Text("https://your-backend.example.com").foregroundColor(.gray)
                         }
@@ -68,6 +70,7 @@ struct ChatHighlightRulesView: View {
                                 KSTChatManager.shared.syncSettingsWithBackend()
                             }
                         ))
+                        .focused($isEditingField)
                         .placeholder(when: (UserDefaults.standard.string(forKey: "KSTPushoverUserKey") ?? "").isEmpty) {
                             Text("Pushover User Key").foregroundColor(.gray)
                         }
@@ -100,12 +103,19 @@ struct ChatHighlightRulesView: View {
                     .onDelete(perform: deleteRules)
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Add") {
+                    Button("Add Rule") {
                         showingAddRule = true
+                    }
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        isEditingField = false
                     }
                 }
             }
