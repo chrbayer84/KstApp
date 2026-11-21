@@ -1,4 +1,4 @@
-import apn, { Provider, Notification } from 'apn';
+import { Provider, Notification } from '@parse/node-apn';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('kst:apns');

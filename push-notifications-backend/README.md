@@ -92,8 +92,8 @@ The service is designed to run on a Raspberry Pi or any Node.js-capable device a
 
 ### Prerequisites
 
-- Node.js >= 14.0.0
-- npm >= 6.0.0
+- Node.js >= 20.0.0
+- npm >= 9.0.0
 - For APNs support: Apple Developer account, APNs authentication key (.p8 file)
 - For Pushover support: Pushover account (free tier available) and API token from Pushover.net
 
